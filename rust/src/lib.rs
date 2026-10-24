@@ -3,5 +3,7 @@ pub mod bridge;
 pub mod dhcp;
 pub mod frame;
 pub mod netcfg;
+pub mod pool;
+pub mod ring;
 pub mod rndis;
 pub mod usb;

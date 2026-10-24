@@ -1,6 +1,6 @@
 # Rust tether daemon
 
-Status: task 4 in progress. Tasks 5–8 not started.
+Status: task 4 machinery done. The 90 second iperf bar is still waiting on `/1` routes and mobile data. Tasks 5–8 not started.
 
 The Rust daemon is a new program. It is Ammar's. The C daemon stays as the baseline. This thread orchestrates. For this session the implementer is Grok 4.7 medium, through T3 `delegate_task`, one task at a time. The child does not commit.
 
@@ -80,7 +80,7 @@ Flags: `--watch`, `--no-route`, `--no-dns`, `--static`, `--gateway`, `--netmask`
 1. Done. Pure `rndis`, `frame`, `dhcp`, and `arp`, with unit tests. No USB device and no `utun`. The C files stay untouched.
 2. Done. With `sudo`, the handshake printed `vid=22d9 pid=2766 mac=96:d6:0a:95:df:4c our_max_transfer_size=32768 phone_max_transfer_size=23700 max_packets_per_transfer=15`.
 3. Done. Netcfg and the blocking bridge. With `sudo` for 5 seconds it printed `utun=utun6 address=10.210.24.4 gateway=10.210.24.153 rx=36 tx=0 drops=0`. `tx=0` is expected: no route sent Mac traffic into that `utun`. The phone delivered 36 frames.
-4. In progress. Pools, frame ring, command queue, keepalive state machine. The 90 second paired iperf waits until the `/1` routes exist and the phone is on mobile data. This task is the machinery and its unit tests.
+4. Machinery done. Frame ring and IN/OUT slot pool, with unit tests. No live USB transfer. Keepalive stays a comment in `pool.rs`: the event thread will send it later as an async control transfer. The bounded command queue is still open. The 90 second paired iperf is not this machinery. It still waits until the `/1` routes exist and the phone is on mobile data.
 5. Pending. Real `/1` routes and temporary DNS service. Prove rollback on SIGTERM, unplug, and a partial setup. Prove SIGKILL leaves no SystemConfiguration keys, and the next start clears leftover `/1` routes.
 6. Pending. JSON IPC on `/tmp/tetherd.sock` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, `enable`.
 7. Pending. Watch mode, LaunchDaemon, universal binary, static libusb, package.
