@@ -18,6 +18,7 @@ const CDC_DATA_CLASS: u8 = 0x0A;
 #[derive(Debug)]
 pub enum UsbError {
     Access(String),
+    Timeout,
     Other(String),
 }
 
@@ -25,6 +26,7 @@ impl std::fmt::Display for UsbError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             UsbError::Access(msg) | UsbError::Other(msg) => f.write_str(msg),
+            UsbError::Timeout => f.write_str("timeout"),
         }
     }
 }
@@ -135,6 +137,26 @@ impl ClaimedDevice {
             .map_err(map_err)?;
         buf.truncate(read);
         Ok(buf)
+    }
+
+    pub fn read_bulk(&self, buf: &mut [u8], timeout: Duration) -> Result<usize, UsbError> {
+        self.handle
+            .read_bulk(self.bulk_in, buf, timeout)
+            .map_err(map_err)
+    }
+
+    pub fn write_bulk(&self, data: &[u8], timeout: Duration) -> Result<(), UsbError> {
+        let written = self
+            .handle
+            .write_bulk(self.bulk_out, data, timeout)
+            .map_err(map_err)?;
+        if written != data.len() {
+            return Err(UsbError::Other(format!(
+                "short bulk write {written} of {}",
+                data.len()
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -365,6 +387,7 @@ fn map_err(err: rusb::Error) -> UsbError {
     let text = err.to_string();
     match err {
         rusb::Error::Access => UsbError::Access(text),
+        rusb::Error::Timeout => UsbError::Timeout,
         _ if text.to_ascii_lowercase().contains("access denied") => UsbError::Access(text),
         _ => UsbError::Other(text),
     }

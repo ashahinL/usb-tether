@@ -1,6 +1,6 @@
 # Rust tether daemon
 
-Status: task 3 netcfg done, bridge not started. Task 2 code is committed; the live handshake still needs root. Tasks 4–8 not started.
+Status: task 3 done. Tasks 4–8 not started.
 
 The Rust daemon is a new program. It is Ammar's. The C daemon stays as the baseline. This thread orchestrates. For this session the implementer is Grok 4.7 medium, through T3 `delegate_task`, one task at a time. The child does not commit.
 
@@ -26,6 +26,7 @@ These override the earlier draft.
 - The ring holds Ethernet frames, at most 2048 bytes each, 256 slots. On IN completion the event thread copies the received bytes out, resubmits that IN slot, then parses the copy and pushes frames. If the ring is full, drop the frame, add to the drop counter, and do not block. Never queue a pointer into a buffer that has already been resubmitted.
 - OUT pool: 63 data slots plus 1 ARP slot. If the ARP slot is busy, drop that ARP and count it. The event thread does not wait for it. The free stack is a convenience. Measure it later. Do not make it lock-free in this pass.
 - The pass bar is paired runs, not one saved median. Alternate C and Rust on the same phone, cable, and network. Record receiver goodput, CPU seconds, CPU per delivered byte, loss, and a latency sample. A 30 second run is only a smoke test. The pass run lasts 90 seconds so keepalive happens more than once. A daemon that drops frames does not win on a lower CPU number.
+- `phone_max_transfer_size=23700` is the largest USB transfer this phone accepts, about 23 KB per transfer. It is not the Wi-Fi speed. The phone also allows 15 Ethernet frames inside one transfer. The current tether is Wi-Fi, which is the slow link. Smoke tests can stay on Wi-Fi. The 90 second pass runs switch the phone to mobile data so the radio is not the cap.
 
 ## What the C daemon does
 
@@ -77,8 +78,8 @@ Flags: `--watch`, `--no-route`, `--no-dns`, `--static`, `--gateway`, `--netmask`
 ## Tasks
 
 1. Done. Pure `rndis`, `frame`, `dhcp`, and `arp`, with unit tests. No USB device and no `utun`. The C files stay untouched.
-2. Code done, access denied. USB open and RNDIS handshake on a phone. Print MAC and both transfer sizes. `cargo run --bin handshake` printed `Access denied (insufficient permissions)` and exited 3. No interface classes were readable, so the phone was not claimed.
-3. Netcfg done. Bridge not started. `netcfg` plans the two `/1` routes and the cleanup set from plain values. It does not install a route or write DNS. The blocking bridge waits until the handshake can open the phone.
+2. Done. With `sudo`, the handshake printed `vid=22d9 pid=2766 mac=96:d6:0a:95:df:4c our_max_transfer_size=32768 phone_max_transfer_size=23700 max_packets_per_transfer=15`.
+3. Done. Netcfg and the blocking bridge. The bridge does not add routes or change DNS. It creates a `utun` and assigns the DHCP address on that interface only. One Ethernet frame per RNDIS data message. A frame that does not fit the phone max transfer size is dropped. No 16/64 pools.
 4. Pending. Pools, frame ring, command queue, keepalive state machine. Stay here until a 90 second paired iperf meets the bar.
 5. Pending. Real `/1` routes and temporary DNS service. Prove rollback on SIGTERM, unplug, and a partial setup. Prove SIGKILL leaves no SystemConfiguration keys, and the next start clears leftover `/1` routes.
 6. Pending. JSON IPC on `/tmp/tetherd.sock` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, `enable`.

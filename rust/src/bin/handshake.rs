@@ -149,6 +149,7 @@ impl From<UsbError> for RunError {
     fn from(err: UsbError) -> Self {
         match err {
             UsbError::Access(msg) => RunError::Access(msg),
+            UsbError::Timeout => RunError::Failed("timeout".into()),
             UsbError::Other(msg) => RunError::Failed(msg),
         }
     }
