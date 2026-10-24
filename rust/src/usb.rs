@@ -43,6 +43,8 @@ pub struct InterfaceClass {
 pub struct RndisInterfaces {
     pub comm: u8,
     pub data: u8,
+    /// Alternate setting that owns the bulk endpoints. `0` means the default.
+    pub data_alt: u8,
     pub bulk_in: u8,
     pub bulk_out: u8,
     pub interrupt: u8,
@@ -140,16 +142,29 @@ impl ClaimedDevice {
     }
 
     pub fn read_bulk(&self, buf: &mut [u8], timeout: Duration) -> Result<usize, UsbError> {
-        self.handle
-            .read_bulk(self.bulk_in, buf, timeout)
-            .map_err(map_err)
+        match self.handle.read_bulk(self.bulk_in, buf, timeout) {
+            Ok(n) => Ok(n),
+            Err(rusb::Error::Pipe) | Err(rusb::Error::Io) => {
+                let _ = self.handle.clear_halt(self.bulk_in);
+                self.handle
+                    .read_bulk(self.bulk_in, buf, timeout)
+                    .map_err(map_err)
+            }
+            Err(err) => Err(map_err(err)),
+        }
     }
 
     pub fn write_bulk(&self, data: &[u8], timeout: Duration) -> Result<(), UsbError> {
-        let written = self
-            .handle
-            .write_bulk(self.bulk_out, data, timeout)
-            .map_err(map_err)?;
+        let written = match self.handle.write_bulk(self.bulk_out, data, timeout) {
+            Ok(n) => n,
+            Err(rusb::Error::Pipe) | Err(rusb::Error::Io) => {
+                let _ = self.handle.clear_halt(self.bulk_out);
+                self.handle
+                    .write_bulk(self.bulk_out, data, timeout)
+                    .map_err(map_err)?
+            }
+            Err(err) => return Err(map_err(err)),
+        };
         if written != data.len() {
             return Err(UsbError::Other(format!(
                 "short bulk write {written} of {}",
@@ -216,6 +231,16 @@ pub fn claim(
             return Err(map_err(err));
         }
     }
+    if rndis.data_alt != 0 {
+        if let Err(err) = handle.set_alternate_setting(rndis.data, rndis.data_alt) {
+            let _ = handle.release_interface(rndis.data);
+            let _ = handle.release_interface(rndis.comm);
+            reattach(&handle, &detached);
+            return Err(map_err(err));
+        }
+    }
+    let _ = handle.clear_halt(rndis.bulk_in);
+    let _ = handle.clear_halt(rndis.bulk_out);
 
     Ok(ClaimedDevice {
         handle,
@@ -284,13 +309,7 @@ fn read_device<T: UsbContext>(device: &rusb::Device<T>) -> Result<Read, UsbError
     }
 
     let rndis = select_rndis(&interfaces).map(|(comm, data)| {
-        let mut found = RndisInterfaces {
-            comm,
-            data,
-            bulk_in: 0,
-            bulk_out: 0,
-            interrupt: 0,
-        };
+        let mut seen = Vec::new();
         for iface in config.interfaces() {
             for alt in iface.descriptors() {
                 let number = alt.interface_number();
@@ -298,25 +317,24 @@ fn read_device<T: UsbContext>(device: &rusb::Device<T>) -> Result<Read, UsbError
                     continue;
                 }
                 for endpoint in alt.endpoint_descriptors() {
-                    match endpoint.transfer_type() {
-                        TransferType::Interrupt if number == comm && found.interrupt == 0 => {
-                            found.interrupt = endpoint.address();
-                        }
-                        TransferType::Bulk => match endpoint.direction() {
-                            Direction::In if found.bulk_in == 0 => {
-                                found.bulk_in = endpoint.address();
-                            }
-                            Direction::Out if found.bulk_out == 0 => {
-                                found.bulk_out = endpoint.address();
-                            }
-                            _ => {}
-                        },
-                        _ => {}
+                    let kind = match (endpoint.transfer_type(), endpoint.direction()) {
+                        (TransferType::Bulk, Direction::In) => Some(EpKind::BulkIn),
+                        (TransferType::Bulk, Direction::Out) => Some(EpKind::BulkOut),
+                        (TransferType::Interrupt, _) if number == comm => Some(EpKind::Interrupt),
+                        _ => None,
+                    };
+                    if let Some(kind) = kind {
+                        seen.push(EndpointDesc {
+                            iface: number,
+                            alt: alt.setting_number(),
+                            address: endpoint.address(),
+                            kind,
+                        });
                     }
                 }
             }
         }
-        found
+        endpoints_for(comm, data, &seen)
     });
 
     Ok(Read::Device(ListedDevice {
@@ -340,6 +358,62 @@ fn denied_device(bus: u8, address: u8, vid: u16, pid: u16) -> ListedDevice {
         rndis: None,
         access_denied: true,
     }
+}
+
+struct EndpointDesc {
+    iface: u8,
+    alt: u8,
+    address: u8,
+    kind: EpKind,
+}
+
+enum EpKind {
+    BulkIn,
+    BulkOut,
+    Interrupt,
+}
+
+/// Bulk endpoints come from the data interface's alternate setting that has both directions.
+fn endpoints_for(comm: u8, data: u8, endpoints: &[EndpointDesc]) -> RndisInterfaces {
+    let mut found = RndisInterfaces {
+        comm,
+        data,
+        data_alt: 0,
+        bulk_in: 0,
+        bulk_out: 0,
+        interrupt: 0,
+    };
+    let mut alts: Vec<u8> = endpoints
+        .iter()
+        .filter(|endpoint| endpoint.iface == data)
+        .map(|endpoint| endpoint.alt)
+        .collect();
+    alts.sort_unstable();
+    alts.dedup();
+    for alt in alts {
+        let bulk_in = endpoints.iter().find(|endpoint| {
+            endpoint.iface == data && endpoint.alt == alt && matches!(endpoint.kind, EpKind::BulkIn)
+        });
+        let bulk_out = endpoints.iter().find(|endpoint| {
+            endpoint.iface == data
+                && endpoint.alt == alt
+                && matches!(endpoint.kind, EpKind::BulkOut)
+        });
+        if let (Some(bulk_in), Some(bulk_out)) = (bulk_in, bulk_out) {
+            found.data_alt = alt;
+            found.bulk_in = bulk_in.address;
+            found.bulk_out = bulk_out.address;
+            break;
+        }
+    }
+    if found.interrupt == 0 {
+        if let Some(interrupt) = endpoints.iter().find(|endpoint| {
+            endpoint.iface == comm && matches!(endpoint.kind, EpKind::Interrupt)
+        }) {
+            found.interrupt = interrupt.address;
+        }
+    }
+    found
 }
 
 fn select_rndis(interfaces: &[InterfaceClass]) -> Option<(u8, u8)> {
@@ -427,6 +501,41 @@ mod tests {
     fn next_interface_is_used_when_no_cdc_data_class() {
         let interfaces = vec![iface(2, 0x02, 0x02, 0x03), iface(3, 0xFF, 0x00, 0x00)];
         assert_eq!(select_rndis(&interfaces), Some((2, 3)));
+    }
+
+    #[test]
+    fn bulk_endpoints_come_from_the_alt_that_has_both() {
+        let endpoints = [
+            EndpointDesc {
+                iface: 1,
+                alt: 0,
+                address: 0x81,
+                kind: EpKind::BulkIn,
+            },
+            EndpointDesc {
+                iface: 1,
+                alt: 1,
+                address: 0x82,
+                kind: EpKind::BulkIn,
+            },
+            EndpointDesc {
+                iface: 1,
+                alt: 1,
+                address: 0x02,
+                kind: EpKind::BulkOut,
+            },
+            EndpointDesc {
+                iface: 0,
+                alt: 0,
+                address: 0x83,
+                kind: EpKind::Interrupt,
+            },
+        ];
+        let found = endpoints_for(0, 1, &endpoints);
+        assert_eq!(found.data_alt, 1);
+        assert_eq!(found.bulk_in, 0x82);
+        assert_eq!(found.bulk_out, 0x02);
+        assert_eq!(found.interrupt, 0x83);
     }
 
     #[test]
