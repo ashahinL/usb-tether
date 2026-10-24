@@ -1,6 +1,6 @@
 # Rust tether daemon
 
-Status: task 6 done. Live route proof has not been run. Tasks 7–8 not started.
+Status: task 7 watch-mode state machine done. LaunchDaemon, universal binary, static libusb, and package are not done. Live route proof has not been run. No LaunchDaemon will be installed. Task 8 not started.
 
 The Rust daemon is a new program. It is Ammar's. The C daemon stays as the baseline. This thread orchestrates. For this session the implementer is Grok 4.7 medium, through T3 `delegate_task`, one task at a time. The child does not commit.
 
@@ -70,6 +70,7 @@ rust/
     arp.rs
     netcfg.rs
     ipc.rs
+    watch.rs
     log.rs
 ```
 
@@ -83,7 +84,7 @@ Flags: `--watch`, `--no-route`, `--no-dns`, `--static`, `--gateway`, `--netmask`
 4. Machinery done. Frame ring and IN/OUT slot pool, with unit tests. No live USB transfer. Keepalive stays a comment in `pool.rs`: the event thread will send it later as an async control transfer. The bounded command queue is still open. The 90 second paired iperf is not this machinery. It still waits until the `/1` routes exist and the phone is on mobile data.
 5. In-memory installer done. `install`, `rollback`, `MemoryDns`, and `startup_sweep` have unit tests. Live route proof has not been run. Still to prove on a root run: rollback on SIGTERM, unplug, and a partial setup; SIGKILL leaves no SystemConfiguration keys; the next start clears leftover `/1` routes.
 6. Done. Newline-delimited JSON in `rust/src/ipc.rs` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, and `enable`. `connecting` and `status` are rejected. Tests do not open a socket. Nothing listens on `/tmp/tetherd.sock` yet.
-7. Pending. Watch mode, LaunchDaemon, universal binary, static libusb, package.
+7. Watch-mode state machine done. `rust/src/watch.rs` starts idle with auto-connect off. Enable, disable, phone appear, phone disappear, and stop are covered by unit tests. LaunchDaemon, universal binary, static libusb, and package are not done.
 8. Pending. Paired bench notes in `docs/bench.md`. Needs the phone. Not a blocker for task 1.
 
 ## Tests for task 1

@@ -8,3 +8,4 @@ pub mod pool;
 pub mod ring;
 pub mod rndis;
 pub mod usb;
+pub mod watch;
