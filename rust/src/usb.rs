@@ -19,6 +19,8 @@ const CDC_DATA_CLASS: u8 = 0x0A;
 pub enum UsbError {
     Access(String),
     Timeout,
+    /// The phone dropped off the bus. It often comes back at a new address.
+    Disconnected,
     Other(String),
 }
 
@@ -27,6 +29,7 @@ impl std::fmt::Display for UsbError {
         match self {
             UsbError::Access(msg) | UsbError::Other(msg) => f.write_str(msg),
             UsbError::Timeout => f.write_str("timeout"),
+            UsbError::Disconnected => f.write_str("phone disconnected"),
         }
     }
 }
@@ -93,6 +96,10 @@ impl Drop for ClaimedDevice {
 }
 
 impl ClaimedDevice {
+    pub fn still_there(&self) -> bool {
+        self.handle.device().device_descriptor().is_ok()
+    }
+
     pub fn send_command(&self, data: &[u8]) -> Result<(), UsbError> {
         let request_type = rusb::request_type(
             Direction::Out,
@@ -199,6 +206,7 @@ pub fn claim(
     vid: u16,
     pid: u16,
     rndis: &RndisInterfaces,
+    activate_alt: bool,
 ) -> Result<ClaimedDevice, UsbError> {
     let context = Context::new().map_err(map_err)?;
     let devices = context.devices().map_err(map_err)?;
@@ -231,7 +239,7 @@ pub fn claim(
             return Err(map_err(err));
         }
     }
-    if rndis.data_alt != 0 {
+    if activate_alt && rndis.data_alt != 0 {
         if let Err(err) = handle.set_alternate_setting(rndis.data, rndis.data_alt) {
             let _ = handle.release_interface(rndis.data);
             let _ = handle.release_interface(rndis.comm);
@@ -242,7 +250,7 @@ pub fn claim(
     let _ = handle.clear_halt(rndis.bulk_in);
     let _ = handle.clear_halt(rndis.bulk_out);
 
-    Ok(ClaimedDevice {
+    let claimed = ClaimedDevice {
         handle,
         detached,
         vid,
@@ -252,7 +260,11 @@ pub fn claim(
         bulk_in: rndis.bulk_in,
         bulk_out: rndis.bulk_out,
         interrupt: rndis.interrupt,
-    })
+    };
+    if activate_alt && !claimed.still_there() {
+        return Err(UsbError::Disconnected);
+    }
+    Ok(claimed)
 }
 
 enum Read {
@@ -461,6 +473,7 @@ fn map_err(err: rusb::Error) -> UsbError {
     let text = err.to_string();
     match err {
         rusb::Error::Access => UsbError::Access(text),
+        rusb::Error::NoDevice => UsbError::Disconnected,
         rusb::Error::Timeout => UsbError::Timeout,
         _ if text.to_ascii_lowercase().contains("access denied") => UsbError::Access(text),
         _ => UsbError::Other(text),

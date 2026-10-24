@@ -94,11 +94,25 @@ fn main() -> ExitCode {
             println!("{msg}");
             ExitCode::from(1)
         }
+        Err(RunError::Disconnected) => {
+            println!("phone disconnected and did not come back");
+            ExitCode::from(1)
+        }
     }
 }
 
 fn run(seconds: u64) -> Result<String, RunError> {
-    let mut session = claim_phone()?;
+    match run_once(seconds, true) {
+        Err(RunError::Disconnected) => {
+            thread::sleep(Duration::from_millis(1000));
+            run_once(seconds, false)
+        }
+        other => other,
+    }
+}
+
+fn run_once(seconds: u64, activate_alt: bool) -> Result<String, RunError> {
+    let mut session = claim_phone(activate_alt)?;
     let tun = open_utun()?;
     session.name = tun.name;
     session.tun = Some(tun.fd);
@@ -113,7 +127,7 @@ fn run(seconds: u64) -> Result<String, RunError> {
     ))
 }
 
-fn claim_phone() -> Result<Session, RunError> {
+fn claim_phone(activate_alt: bool) -> Result<Session, RunError> {
     let scan = usb::list_devices()?;
     let Some(found) = scan
         .devices
@@ -135,7 +149,14 @@ fn claim_phone() -> Result<Session, RunError> {
         return Err(RunError::NoRndis(scan.devices));
     };
     let rndis = found.rndis.as_ref().expect("rndis match");
-    let device = usb::claim(found.bus, found.address, found.vid, found.pid, rndis)?;
+    let device = usb::claim(
+        found.bus,
+        found.address,
+        found.vid,
+        found.pid,
+        rndis,
+        activate_alt,
+    )?;
     if device.bulk_in == 0 || device.bulk_out == 0 {
         return Err(RunError::Failed("RNDIS data endpoints missing".into()));
     }
@@ -315,13 +336,14 @@ fn forward(
         let wait = left.min(READ_SLICE);
         match session.device.read_bulk(&mut inbound, wait) {
             Ok(0) | Err(UsbError::Timeout) => {}
+            Err(UsbError::Disconnected) => return Err(RunError::Disconnected),
             Ok(len) => {
                 for message in messages_of(&inbound[..len]) {
                     let Message::Data { frame } = message else {
                         continue;
                     };
                     if let Some(reply) = arp::reply_if_ours(&frame, session.mac, our_ip) {
-                        submit_out(session, &reply, &mut counts);
+                        submit_out(session, &reply, &mut counts)?;
                     } else if let Ok(packet) = frame::eth_to_utun(&frame) {
                         let written = write_utun(fd, &packet);
                         bridge::note_rx(&mut counts.rx, written);
@@ -335,7 +357,7 @@ fn forward(
                 break;
             };
             match frame::utun_to_eth(&outbound[..len], session.mac, gateway_mac) {
-                Ok(frame) => submit_out(session, &frame, &mut counts),
+                Ok(frame) => submit_out(session, &frame, &mut counts)?,
                 Err(_) => counts.drops += 1,
             }
         }
@@ -343,11 +365,13 @@ fn forward(
     Ok(counts)
 }
 
-fn submit_out(session: &Session, frame: &[u8], counts: &mut Counts) {
+fn submit_out(session: &Session, frame: &[u8], counts: &mut Counts) -> Result<(), RunError> {
     match try_send(session, frame) {
         Ok(()) => counts.tx += 1,
+        Err(SendError::Usb(UsbError::Disconnected)) => return Err(RunError::Disconnected),
         Err(SendError::Drop) | Err(SendError::Usb(_)) => counts.drops += 1,
     }
+    Ok(())
 }
 
 fn must_send(session: &Session, frame: &[u8]) -> Result<(), RunError> {
@@ -355,6 +379,7 @@ fn must_send(session: &Session, frame: &[u8]) -> Result<(), RunError> {
         SendError::Drop => {
             RunError::Failed("RNDIS packet larger than phone max transfer size".into())
         }
+        SendError::Usb(UsbError::Disconnected) => RunError::Disconnected,
         SendError::Usb(err) => RunError::Failed(format!("bulk OUT: {err}")),
     })
 }
@@ -377,6 +402,7 @@ fn read_in(session: &Session, deadline: Instant) -> Result<Option<Vec<Message>>,
     let mut buf = vec![0u8; OUR_MAX_TRANSFER_SIZE as usize];
     match session.device.read_bulk(&mut buf, left) {
         Ok(0) | Err(UsbError::Timeout) => Ok(None),
+        Err(UsbError::Disconnected) => return Err(RunError::Disconnected),
         Ok(len) => Ok(Some(messages_of(&buf[..len]))),
         Err(err) => Err(RunError::Failed(format!("bulk IN: {err}"))),
     }
@@ -691,6 +717,7 @@ enum SendError {
 enum RunError {
     NoRndis(Vec<ListedDevice>),
     Access(String),
+    Disconnected,
     Failed(String),
 }
 
@@ -699,6 +726,7 @@ impl From<UsbError> for RunError {
         match err {
             UsbError::Access(msg) => RunError::Access(msg),
             UsbError::Timeout => RunError::Failed("timeout".into()),
+            UsbError::Disconnected => RunError::Disconnected,
             UsbError::Other(msg) => RunError::Failed(msg),
         }
     }

@@ -62,7 +62,7 @@ fn run() -> Result<String, RunError> {
         return Err(RunError::NoRndis(scan.devices));
     };
     let rndis = found.rndis.as_ref().expect("rndis match");
-    let device = usb::claim(found.bus, found.address, found.vid, found.pid, rndis)?;
+    let device = usb::claim(found.bus, found.address, found.vid, found.pid, rndis, false)?;
 
     device.send_command(&rndis::build_init(1))?;
     thread::sleep(Duration::from_millis(100));
@@ -150,6 +150,7 @@ impl From<UsbError> for RunError {
         match err {
             UsbError::Access(msg) => RunError::Access(msg),
             UsbError::Timeout => RunError::Failed("timeout".into()),
+            UsbError::Disconnected => RunError::Failed("phone disconnected".into()),
             UsbError::Other(msg) => RunError::Failed(msg),
         }
     }
