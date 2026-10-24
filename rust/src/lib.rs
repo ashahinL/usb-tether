@@ -2,6 +2,7 @@ pub mod arp;
 pub mod bridge;
 pub mod dhcp;
 pub mod frame;
+pub mod ipc;
 pub mod netcfg;
 pub mod pool;
 pub mod ring;

@@ -1,6 +1,6 @@
 # Rust tether daemon
 
-Status: task 5 in-memory installer done. Live route proof has not been run. The route code must not touch the live network until a root run is asked for. Tasks 6–8 not started.
+Status: task 6 done. Live route proof has not been run. Tasks 7–8 not started.
 
 The Rust daemon is a new program. It is Ammar's. The C daemon stays as the baseline. This thread orchestrates. For this session the implementer is Grok 4.7 medium, through T3 `delegate_task`, one task at a time. The child does not commit.
 
@@ -82,7 +82,7 @@ Flags: `--watch`, `--no-route`, `--no-dns`, `--static`, `--gateway`, `--netmask`
 3. Done. Netcfg and the blocking bridge. With `sudo` for 5 seconds it printed `utun=utun6 address=10.210.24.4 gateway=10.210.24.153 rx=36 tx=0 drops=0`. `tx=0` is expected: no route sent Mac traffic into that `utun`. The phone delivered 36 frames.
 4. Machinery done. Frame ring and IN/OUT slot pool, with unit tests. No live USB transfer. Keepalive stays a comment in `pool.rs`: the event thread will send it later as an async control transfer. The bounded command queue is still open. The 90 second paired iperf is not this machinery. It still waits until the `/1` routes exist and the phone is on mobile data.
 5. In-memory installer done. `install`, `rollback`, `MemoryDns`, and `startup_sweep` have unit tests. Live route proof has not been run. Still to prove on a root run: rollback on SIGTERM, unplug, and a partial setup; SIGKILL leaves no SystemConfiguration keys; the next start clears leftover `/1` routes.
-6. Pending. JSON IPC on `/tmp/tetherd.sock` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, `enable`.
+6. Done. Newline-delimited JSON in `rust/src/ipc.rs` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, and `enable`. `connecting` and `status` are rejected. Tests do not open a socket. Nothing listens on `/tmp/tetherd.sock` yet.
 7. Pending. Watch mode, LaunchDaemon, universal binary, static libusb, package.
 8. Pending. Paired bench notes in `docs/bench.md`. Needs the phone. Not a blocker for task 1.
 
