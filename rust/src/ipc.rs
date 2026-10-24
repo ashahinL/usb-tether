@@ -191,7 +191,10 @@ mod tests {
             parse_command("{\"type\":\"disable\"}"),
             Some(Command::Disable)
         );
-        assert_eq!(parse_command("{\"type\":\"enable\"}"), Some(Command::Enable));
+        assert_eq!(
+            parse_command("{\"type\":\"enable\"}"),
+            Some(Command::Enable)
+        );
     }
 
     #[test]

@@ -419,9 +419,10 @@ fn endpoints_for(comm: u8, data: u8, endpoints: &[EndpointDesc]) -> RndisInterfa
         }
     }
     if found.interrupt == 0 {
-        if let Some(interrupt) = endpoints.iter().find(|endpoint| {
-            endpoint.iface == comm && matches!(endpoint.kind, EpKind::Interrupt)
-        }) {
+        if let Some(interrupt) = endpoints
+            .iter()
+            .find(|endpoint| endpoint.iface == comm && matches!(endpoint.kind, EpKind::Interrupt))
+        {
             found.interrupt = interrupt.address;
         }
     }
