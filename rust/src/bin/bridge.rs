@@ -111,6 +111,7 @@ struct Counts {
     rx: u64,
     tx: u64,
     drops: u64,
+    keepalives: u64,
 }
 
 fn main() -> ExitCode {
@@ -198,8 +199,14 @@ fn run_once(seconds: u64, activate_alt: bool, routes: bool) -> Result<String, Ru
     if !routes {
         let counts = forward(&session, seconds, assigned.address, gateway_mac, false)?;
         return Ok(format!(
-            "utun={} address={} gateway={} rx={} tx={} drops={}",
-            session.name, assigned.address, assigned.gateway, counts.rx, counts.tx, counts.drops
+            "utun={} address={} gateway={} rx={} tx={} drops={} keepalives={}",
+            session.name,
+            assigned.address,
+            assigned.gateway,
+            counts.rx,
+            counts.tx,
+            counts.drops,
+            counts.keepalives
         ));
     }
 
@@ -214,8 +221,14 @@ fn run_once(seconds: u64, activate_alt: bool, routes: bool) -> Result<String, Ru
         return Err(RunError::Failed("default route is absent".into()));
     }
     Ok(format!(
-        "routes_added={added} default_kept=yes\nutun={} address={} gateway={} rx={} tx={} drops={}",
-        session.name, assigned.address, assigned.gateway, counts.rx, counts.tx, counts.drops
+        "routes_added={added} default_kept=yes\nutun={} address={} gateway={} rx={} tx={} drops={} keepalives={}",
+        session.name,
+        assigned.address,
+        assigned.gateway,
+        counts.rx,
+        counts.tx,
+        counts.drops,
+        counts.keepalives
     ))
 }
 
@@ -417,13 +430,23 @@ fn forward(
         rx: 0,
         tx: 0,
         drops: 0,
+        keepalives: 0,
     };
     let mut inbound = vec![0u8; OUR_MAX_TRANSFER_SIZE as usize];
     let mut outbound = vec![0u8; 2048];
-    let end = Instant::now() + Duration::from_secs(seconds);
+    let mut keepalive_id = 4u32;
+    let mut keepalive_sent = 0u32;
+    let started = Instant::now();
+    let end = started + Duration::from_secs(seconds);
     while Instant::now() < end {
         if watch_stop && STOP.load(Ordering::Relaxed) {
             break;
+        }
+        if keepalive_due(started.elapsed(), keepalive_sent) {
+            send_keepalive(session, keepalive_id)?;
+            keepalive_id = keepalive_id.wrapping_add(1);
+            keepalive_sent += 1;
+            counts.keepalives += 1;
         }
         let left = end.saturating_duration_since(Instant::now());
         if left.is_zero() {
@@ -459,6 +482,20 @@ fn forward(
         }
     }
     Ok(counts)
+}
+
+/// Send the first keepalive immediately, then one every 30 seconds.
+fn keepalive_due(elapsed: Duration, sent: u32) -> bool {
+    elapsed >= Duration::from_secs(30) * sent
+}
+
+fn send_keepalive(session: &Session, request_id: u32) -> Result<(), RunError> {
+    session
+        .device
+        .send_command(&rndis::build_keepalive(request_id))?;
+    thread::sleep(Duration::from_millis(10));
+    session.device.read_response()?;
+    Ok(())
 }
 
 fn submit_out(session: &Session, frame: &[u8], counts: &mut Counts) -> Result<(), RunError> {
@@ -948,5 +985,15 @@ mod tests {
     fn unknown_argument_is_an_error() {
         let err = parse_args_from(["--dns"]).unwrap_err();
         assert_eq!(err, "unknown argument --dns");
+    }
+
+    #[test]
+    fn keepalive_is_due_immediately_and_then_every_30_seconds() {
+        use std::time::Duration;
+        assert!(super::keepalive_due(Duration::from_secs(0), 0));
+        assert!(!super::keepalive_due(Duration::from_secs(29), 1));
+        assert!(super::keepalive_due(Duration::from_secs(30), 1));
+        assert!(!super::keepalive_due(Duration::from_secs(59), 2));
+        assert!(super::keepalive_due(Duration::from_secs(60), 2));
     }
 }
