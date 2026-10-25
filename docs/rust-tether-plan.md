@@ -1,6 +1,6 @@
 # Rust tether daemon
 
-Status: task 7 watch-mode state machine is done. The --routes proof program is written and has not been run. DNS live publish, SIGKILL, and the next-start sweep have not been run on the Mac. LaunchDaemon, universal binary, static libusb, and package are not done. Task 8 is not started.
+Status: the 20 second route proof passed, and the two /1 routes were gone afterward. DNS live publish, SIGTERM, Ctrl-C, unplug, SIGKILL, and the next-start sweep have not been run on the Mac. LaunchDaemon, universal binary, static libusb, and package are not done. Task 8 is not started.
 
 The Rust daemon is a new program. It is Ammar's. The C daemon stays as the baseline. This thread orchestrates. For this session the implementer is Grok 4.7 medium, through T3 `delegate_task`, one task at a time. The child does not commit.
 
@@ -82,7 +82,7 @@ Flags: `--watch`, `--no-route`, `--no-dns`, `--static`, `--gateway`, `--netmask`
 2. Done. With `sudo`, the handshake printed `vid=22d9 pid=2766 mac=96:d6:0a:95:df:4c our_max_transfer_size=32768 phone_max_transfer_size=23700 max_packets_per_transfer=15`.
 3. Done. Netcfg and the blocking bridge. With `sudo` for 5 seconds it printed `utun=utun6 address=10.210.24.4 gateway=10.210.24.153 rx=36 tx=0 drops=0`. `tx=0` is expected: no route sent Mac traffic into that `utun`. The phone delivered 36 frames.
 4. Machinery done. Frame ring and IN/OUT slot pool, with unit tests. No live USB transfer. Keepalive stays a comment in `pool.rs`: the event thread will send it later as an async control transfer. The bounded command queue is still open. The 90 second paired iperf is not this machinery. It still waits until the `/1` routes exist and the phone is on mobile data.
-5. The command store and `--routes` flag exist, with unit tests. The live sudo run has not happened.
+5. Live route proof passed. `sudo /tmp/tether-route-build/debug/bridge --routes --seconds 20` printed `routes_added=2 default_kept=yes` and `utun=utun5 address=10.210.24.14 gateway=10.210.24.153 rx=187 tx=218 drops=0`. At 18:35 EEST the default route was still `192.168.100.1` on `en0`, no `/1` route remained, and both proof files were gone. `tx=218` is Mac traffic that went out through the phone. SIGTERM, Ctrl-C, unplug, SIGKILL, DNS, and a dead-pid sweep have not been run.
 6. Done. Newline-delimited JSON in `rust/src/ipc.rs` for `idle`, `watching`, `connected`, `disconnected`, `stats`, `stop`, `disable`, and `enable`. `connecting` and `status` are rejected. Tests do not open a socket. Nothing listens on `/tmp/tetherd.sock` yet.
 7. Watch-mode state machine done. `rust/src/watch.rs` starts idle with auto-connect off. Enable, disable, phone appear, phone disappear, and stop are covered by unit tests. LaunchDaemon, universal binary, static libusb, and package are not done.
 8. Pending. Paired bench notes in `docs/bench.md`. Needs the phone. Not a blocker for task 1.
