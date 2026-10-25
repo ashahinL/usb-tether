@@ -1,17 +1,22 @@
 //! One blocking RNDIS session: DHCP, a utun address, gateway ARP, then exit.
-//! This binary does not add routes or change DNS.
+//! `--routes` adds the two /1 routes for that session and removes them on the way out.
+//! Without `--routes` this binary does not add routes or change DNS.
 
 use std::io::ErrorKind;
 use std::net::Ipv4Addr;
 use std::os::unix::io::RawFd;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tether::arp;
 use tether::bridge::{self, OutDecision};
+use tether::bsd_route::{self, CommandRoutes, SystemRunner};
 use tether::dhcp::{self, ServerMessage};
 use tether::frame;
+use tether::netcfg;
 use tether::rndis::{
     self, parse_init_cmplt, parse_query_cmplt, parse_set_cmplt, Message, OUR_MAX_TRANSFER_SIZE,
 };
@@ -27,6 +32,51 @@ const BULK_OUT_TIMEOUT: Duration = Duration::from_secs(1);
 const READ_SLICE: Duration = Duration::from_millis(100);
 const OPT_SUBNET_MASK: u8 = 1;
 const OPT_SERVER_ID: u8 = 54;
+
+static STOP: AtomicBool = AtomicBool::new(false);
+static ROLLBACK_FAILED: AtomicBool = AtomicBool::new(false);
+
+type LiveStore = CommandRoutes<SystemRunner, fn(&str) -> Option<u32>>;
+
+struct Proof {
+    store: LiveStore,
+    session: netcfg::Session,
+    routes_path: PathBuf,
+    pid_path: PathBuf,
+    done: bool,
+}
+
+impl Proof {
+    fn finish(&mut self) -> Result<bool, RunError> {
+        self.done = true;
+        bsd_route::finish_proof(
+            &mut self.store,
+            &self.session,
+            &self.pid_path,
+            &self.routes_path,
+        )
+        .map_err(|_| RunError::Failed("route rollback failed".into()))
+    }
+}
+
+impl Drop for Proof {
+    fn drop(&mut self) {
+        if self.done {
+            return;
+        }
+        self.done = true;
+        if bsd_route::finish_proof(
+            &mut self.store,
+            &self.session,
+            &self.pid_path,
+            &self.routes_path,
+        )
+        .is_err()
+        {
+            ROLLBACK_FAILED.store(true, Ordering::Relaxed);
+        }
+    }
+}
 
 struct Session {
     device: ClaimedDevice,
@@ -64,14 +114,31 @@ struct Counts {
 }
 
 fn main() -> ExitCode {
-    let seconds = match parse_seconds() {
-        Ok(seconds) => seconds,
+    let args = match parse_args() {
+        Ok(args) => args,
         Err(msg) => {
             println!("{msg}");
             return ExitCode::from(1);
         }
     };
-    match run(seconds) {
+    if args.routes {
+        if unsafe { libc::geteuid() } != 0 {
+            println!("route proof needs root");
+            return ExitCode::from(1);
+        }
+        if !install_stop_handler() {
+            println!("could not arm SIGTERM");
+            return ExitCode::from(1);
+        }
+        if let Err(err) = sweep_stale_proof() {
+            return report(Err(err));
+        }
+    }
+    report(run(args.seconds, args.routes))
+}
+
+fn report(result: Result<String, RunError>) -> ExitCode {
+    match result {
         Ok(line) => {
             println!("{line}");
             ExitCode::from(0)
@@ -101,17 +168,25 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(seconds: u64) -> Result<String, RunError> {
-    match run_once(seconds, true) {
+fn run(seconds: u64, routes: bool) -> Result<String, RunError> {
+    let first = run_once(seconds, true, routes);
+    if ROLLBACK_FAILED.swap(false, Ordering::Relaxed) {
+        return Err(RunError::Failed("route rollback failed".into()));
+    }
+    match first {
         Err(RunError::Disconnected) => {
             thread::sleep(Duration::from_millis(1000));
-            run_once(seconds, false)
+            let second = run_once(seconds, false, routes);
+            if ROLLBACK_FAILED.swap(false, Ordering::Relaxed) {
+                return Err(RunError::Failed("route rollback failed".into()));
+            }
+            second
         }
         other => other,
     }
 }
 
-fn run_once(seconds: u64, activate_alt: bool) -> Result<String, RunError> {
+fn run_once(seconds: u64, activate_alt: bool, routes: bool) -> Result<String, RunError> {
     let mut session = claim_phone(activate_alt)?;
     let tun = open_utun()?;
     session.name = tun.name;
@@ -120,9 +195,26 @@ fn run_once(seconds: u64, activate_alt: bool) -> Result<String, RunError> {
     let assigned = dhcp(&session)?;
     assign_address(&session.name, &assigned)?;
     let gateway_mac = resolve_gateway(&session, assigned.address, assigned.gateway)?;
-    let counts = forward(&session, seconds, assigned.address, gateway_mac)?;
+    if !routes {
+        let counts = forward(&session, seconds, assigned.address, gateway_mac, false)?;
+        return Ok(format!(
+            "utun={} address={} gateway={} rx={} tx={} drops={}",
+            session.name, assigned.address, assigned.gateway, counts.rx, counts.tx, counts.drops
+        ));
+    }
+
+    if STOP.load(Ordering::Relaxed) {
+        return Err(RunError::Failed("stopped before routes".into()));
+    }
+    let mut proof = install_routes(&session.name, assigned.gateway)?;
+    let counts = forward(&session, seconds, assigned.address, gateway_mac, true)?;
+    let added = proof.session.recorded().len();
+    let default_kept = proof.finish()?;
+    if !default_kept {
+        return Err(RunError::Failed("default route is absent".into()));
+    }
     Ok(format!(
-        "utun={} address={} gateway={} rx={} tx={} drops={}",
+        "routes_added={added} default_kept=yes\nutun={} address={} gateway={} rx={} tx={} drops={}",
         session.name, assigned.address, assigned.gateway, counts.rx, counts.tx, counts.drops
     ))
 }
@@ -316,6 +408,7 @@ fn forward(
     seconds: u64,
     our_ip: Ipv4Addr,
     gateway_mac: [u8; 6],
+    watch_stop: bool,
 ) -> Result<Counts, RunError> {
     let fd = session
         .tun
@@ -329,6 +422,9 @@ fn forward(
     let mut outbound = vec![0u8; 2048];
     let end = Instant::now() + Duration::from_secs(seconds);
     while Instant::now() < end {
+        if watch_stop && STOP.load(Ordering::Relaxed) {
+            break;
+        }
         let left = end.saturating_duration_since(Instant::now());
         if left.is_zero() {
             break;
@@ -672,23 +768,115 @@ fn os_err(what: &str) -> RunError {
     RunError::Failed(format!("{what}: {}", std::io::Error::last_os_error()))
 }
 
-fn parse_seconds() -> Result<u64, String> {
-    let mut args = std::env::args().skip(1);
+#[derive(Debug)]
+struct Args {
+    seconds: u64,
+    routes: bool,
+}
+
+fn parse_args() -> Result<Args, String> {
+    parse_args_from(std::env::args().skip(1))
+}
+
+fn parse_args_from<I, S>(args: I) -> Result<Args, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     let mut seconds = 5u64;
+    let mut routes = false;
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
-        match arg.as_str() {
+        match arg.as_ref() {
             "--seconds" => {
                 let value = args
                     .next()
                     .ok_or_else(|| "--seconds needs a number".to_string())?;
+                let value = value.as_ref();
                 seconds = value
                     .parse()
                     .map_err(|_| format!("bad --seconds {value}"))?;
             }
+            "--routes" => routes = true,
             other => return Err(format!("unknown argument {other}")),
         }
     }
-    Ok(seconds)
+    Ok(Args { seconds, routes })
+}
+
+fn install_routes(name: &str, gateway: Ipv4Addr) -> Result<Proof, RunError> {
+    let store = bsd_route::command_store();
+    let table = store
+        .read_table()
+        .map_err(|_| RunError::Failed("netstat failed".into()))?;
+    if !table.default_present {
+        return Err(RunError::Failed("default route is absent".into()));
+    }
+    let index = bsd_route::interface_index(name)
+        .ok_or_else(|| RunError::Failed(format!("no interface index for {name}")))?;
+    let mut proof = Proof {
+        store,
+        session: netcfg::Session::new(),
+        routes_path: PathBuf::from(bsd_route::ROUTE_FILE),
+        pid_path: PathBuf::from(bsd_route::PID_FILE),
+        done: false,
+    };
+    bsd_route::install_half_routes(
+        &mut proof.store,
+        &mut proof.session,
+        &proof.routes_path,
+        &proof.pid_path,
+        gateway,
+        index,
+        std::process::id(),
+    )
+    .map_err(|err| match err {
+        bsd_route::ProofError::NotAdded(_) => RunError::Failed("route add did not succeed".into()),
+        bsd_route::ProofError::Io(err) => RunError::Failed(format!("route record: {err}")),
+        bsd_route::ProofError::Rollback => RunError::Failed("route rollback failed".into()),
+    })?;
+    Ok(proof)
+}
+
+fn sweep_stale_proof() -> Result<(), RunError> {
+    let pid_path = Path::new(bsd_route::PID_FILE);
+    let routes_path = Path::new(bsd_route::ROUTE_FILE);
+    let Some(pid) = bsd_route::load_pid(pid_path)
+        .map_err(|err| RunError::Failed(format!("pid file: {err}")))?
+    else {
+        return Ok(());
+    };
+    if bsd_route::pid_alive(pid) {
+        return Err(RunError::Failed("route proof already running".into()));
+    }
+    let saved = bsd_route::load_routes(routes_path)
+        .map_err(|err| RunError::Failed(format!("route record: {err}")))?;
+    let mut store = bsd_route::command_store();
+    netcfg::startup_sweep(&mut store, &netcfg::Pidfile { pid }, false, Some(&saved));
+    let table = store
+        .read_table()
+        .map_err(|_| RunError::Failed("route sweep failed".into()))?;
+    if saved.iter().any(|route| table.routes.contains(route)) {
+        return Err(RunError::Failed("route sweep failed".into()));
+    }
+    Ok(())
+}
+
+fn install_stop_handler() -> bool {
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = on_stop as *const () as libc::sighandler_t;
+        if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            return false;
+        }
+        action.sa_flags = libc::SA_RESTART;
+        libc::sigaction(libc::SIGTERM, &action, std::ptr::null_mut()) == 0
+            && libc::sigaction(libc::SIGINT, &action, std::ptr::null_mut()) == 0
+    }
+}
+
+extern "C" fn on_stop(_signal: libc::c_int) {
+    STOP.store(true, Ordering::Relaxed);
 }
 
 fn print_device(device: &ListedDevice) {
@@ -735,5 +923,30 @@ impl From<UsbError> for RunError {
 impl From<rndis::RndisError> for RunError {
     fn from(err: rndis::RndisError) -> Self {
         RunError::Failed(format!("{err:?}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_args_from;
+
+    #[test]
+    fn no_args_means_five_seconds_and_routes_off() {
+        let args = parse_args_from(std::iter::empty::<&str>()).unwrap();
+        assert_eq!(args.seconds, 5);
+        assert!(!args.routes);
+    }
+
+    #[test]
+    fn seconds_and_routes_flag() {
+        let args = parse_args_from(["--seconds", "45", "--routes"]).unwrap();
+        assert_eq!(args.seconds, 45);
+        assert!(args.routes);
+    }
+
+    #[test]
+    fn unknown_argument_is_an_error() {
+        let err = parse_args_from(["--dns"]).unwrap_err();
+        assert_eq!(err, "unknown argument --dns");
     }
 }

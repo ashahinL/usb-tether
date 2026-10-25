@@ -10,6 +10,7 @@ use std::net::Ipv4Addr;
 pub enum AddOutcome {
     Succeeded,
     Eexist,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +63,7 @@ impl Session {
     }
 
     /// Keep `route` only when the caller reports that the add succeeded.
-    /// `EEXIST` means the route was already there, so a later cleanup must not delete it.
+    /// `Eexist` and `Failed` are not recorded, so a later cleanup must not delete them.
     pub fn record_added(&mut self, route: Route, outcome: AddOutcome) {
         if outcome == AddOutcome::Succeeded {
             self.recorded.push(route);
