@@ -91,7 +91,8 @@ static void match_reply(const uint8_t *frame, size_t len, void *ctx)
 
     if (wait->found)
         return;
-    if (dhcp_parse_reply(frame, len, wait->xid, &reply) == 0 && reply.msg_type == wait->want_type) {
+    if (dhcp_parse_reply(frame, len, wait->xid, &reply) == 0 &&
+        reply.msg_type == wait->want_type && reply.yiaddr != 0) {
         wait->reply = reply;
         wait->found = 1;
     }
@@ -302,7 +303,7 @@ int dhcp_discover(usb_device_t *usb, rndis_state_t *rndis, dhcp_lease_t *lease)
         return -1;
     }
 
-    copy_addr(lease->ip, sizeof(lease->ip), ack.yiaddr, DEFAULT_STATIC_IP);
+    copy_addr(lease->ip, sizeof(lease->ip), ack.yiaddr, "");
     copy_addr(lease->gateway, sizeof(lease->gateway),
               ack.router ? ack.router : offer.router, DEFAULT_GATEWAY);
     copy_addr(lease->netmask, sizeof(lease->netmask),
