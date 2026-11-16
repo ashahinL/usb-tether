@@ -14,7 +14,7 @@ Status: backlog. Nothing here is scheduled. Collected after v1.0.0 work, 2026-11
 
 - Sign and notarize with an Apple Developer ID so users skip the "Open anyway" step.
 - Decide on a VID/PID allowlist or a "trusted phones" list. It does not stop a spoofing device, but it stops the app from claiming every RNDIS device.
-- The Rust rewrite is parked on the `dev` branch. Revisit only if the C daemon shows real problems.
+- The Rust rewrite is parked on the `rust-rewrite` branch. Revisit only if the C daemon shows real problems.
 
 ## Tooling
 

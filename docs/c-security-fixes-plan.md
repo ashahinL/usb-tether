@@ -2,7 +2,7 @@
 
 Status: tasks 1 to 3 are done. The live check on the phone after install has not been run.
 
-The daemon runs as root. These tasks fix the findings from the security review. The Rust rewrite is parked on the `dev` branch.
+The daemon runs as root. These tasks fix the findings from the security review. The Rust rewrite is parked on the `rust-rewrite` branch.
 
 ## Tasks
 
