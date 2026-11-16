@@ -20,8 +20,7 @@
  *   {"type":"enable"}     - enable auto-connect
  *   {"type":"status"}     - request current status
  *
- * Socket path: /var/run/macostether.sock. Only root and the console user
- * may connect.
+ * Only root and the console user may connect.
  */
 
 #define IPC_SOCK_PATH "/var/run/macostether.sock"

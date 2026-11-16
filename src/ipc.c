@@ -59,7 +59,7 @@ ipc_server_t *ipc_server_create(void)
         return NULL;
     }
 
-    /* Any local user may reach the socket; accept() checks who it is. */
+    /* Any local user may connect; peer_allowed() rejects all but root and the console user. */
     chmod(IPC_SOCK_PATH, 0666);
 
     if (listen(srv->listen_fd, 2) < 0) {

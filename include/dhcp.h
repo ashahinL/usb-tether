@@ -31,7 +31,7 @@ typedef struct {
     uint32_t dns2;
 } dhcp_reply_t;
 
-/* Parse an Ethernet frame as a DHCP reply to xid. Returns 0 on success. */
+/* Returns 0 if frame is a DHCP reply to xid (host byte order), -1 otherwise. */
 int dhcp_parse_reply(const uint8_t *frame, size_t len, uint32_t xid, dhcp_reply_t *reply);
 
 /* Build a DHCP discover packet inside an Ethernet frame.
