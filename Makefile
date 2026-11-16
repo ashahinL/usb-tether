@@ -122,7 +122,7 @@ uninstall:
 	launchctl unload $(PLIST_DST) 2>/dev/null || true
 	rm -f $(PLIST_DST)
 	rm -rf /Applications/macOs_tether.app
-	rm -f /tmp/macostether.sock
+	rm -f /var/run/macostether.sock
 	@echo "Uninstalled macOs_tether.app and LaunchDaemon"
 
 pkg:

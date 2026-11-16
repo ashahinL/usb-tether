@@ -59,21 +59,8 @@ ipc_server_t *ipc_server_create(void)
         return NULL;
     }
 
-    /* Make socket accessible to the console user.
-       Try SUDO_UID first (manual sudo), then SCDynamicStoreCopyConsoleUser,
-       then fall back to world-writable (safe for local Unix socket). */
-    const char *sudo_uid = getenv("SUDO_UID");
-    const char *sudo_gid = getenv("SUDO_GID");
-    if (sudo_uid && sudo_gid) {
-        uid_t uid = (uid_t)strtol(sudo_uid, NULL, 10);
-        gid_t gid = (gid_t)strtol(sudo_gid, NULL, 10);
-        chown(IPC_SOCK_PATH, uid, gid);
-        chmod(IPC_SOCK_PATH, 0660);
-    } else {
-        /* LaunchDaemon context: no SUDO_UID. Use 0666 which is safe
-           for a local Unix socket on a single-user workstation. */
-        chmod(IPC_SOCK_PATH, 0666);
-    }
+    /* Any local user may reach the socket; accept() checks who it is. */
+    chmod(IPC_SOCK_PATH, 0666);
 
     if (listen(srv->listen_fd, 2) < 0) {
         LOG_W(TAG, "failed to listen: %s", strerror(errno));
@@ -87,6 +74,19 @@ ipc_server_t *ipc_server_create(void)
 
     LOG_I(TAG, "IPC server listening on %s", IPC_SOCK_PATH);
     return srv;
+}
+
+static int peer_allowed(int fd)
+{
+    uid_t uid;
+    gid_t gid;
+    struct stat console;
+
+    if (getpeereid(fd, &uid, &gid) < 0)
+        return 0;
+    if (uid == 0)
+        return 1;
+    return stat("/dev/console", &console) == 0 && console.st_uid == uid;
 }
 
 static void send_to_client(int fd, const char *json)
@@ -126,6 +126,11 @@ int ipc_server_poll(ipc_server_t *srv)
 
     /* Accept new connections */
     int client_fd = accept(srv->listen_fd, NULL, NULL);
+    if (client_fd >= 0 && !peer_allowed(client_fd)) {
+        LOG_W(TAG, "rejected IPC client that is not root or the console user");
+        close(client_fd);
+        client_fd = -1;
+    }
     if (client_fd >= 0) {
         set_nonblocking(client_fd);
 

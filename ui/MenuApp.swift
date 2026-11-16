@@ -38,7 +38,7 @@ struct IPCMessage: Codable {
 
 class IPCClient {
     private var sockFd: Int32 = -1
-    private let sockPath = "/tmp/macostether.sock"
+    private let sockPath = "/var/run/macostether.sock"
     private var readBuffer = ""
 
     var onStats: ((Stats) -> Void)?
