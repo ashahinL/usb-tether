@@ -6,7 +6,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ### Prerequisites
 
-- macOS 10.15+ (Catalina or later)
+- macOS 13 (Ventura) or later
 - Xcode Command Line Tools (`xcode-select --install`)
 - [Homebrew](https://brew.sh)
 - libusb (`brew install libusb`)
@@ -14,14 +14,16 @@ Thank you for your interest in contributing! This guide will help you get starte
 ### Building
 
 ```bash
-# Standard build (host architecture)
+# Development build (host architecture, Homebrew libusb)
 make clean && make
+make test
 
-# Universal Binary (arm64 + x86_64)
-make UNIVERSAL=1
+# Release build: universal .pkg inside a .dmg (no Homebrew needed)
+make dist
 
-# Verbose build output
-make V=1
+# Redraw the app icon and the README screenshots
+make icon
+make screenshots
 ```
 
 ### Running
@@ -85,12 +87,11 @@ The project uses a vtable-based protocol driver interface. To add support for a 
 
 ## Pull Request Process
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/ncm-support`)
-3. Make your changes
-4. Ensure `make clean && make` compiles with zero warnings
-5. Test with a real device if possible
-6. Submit a pull request with a clear description
+1. Fork the repository and branch from `dev`.
+2. Make your change. Keep each pull request to one topic.
+3. Run `make clean && make && make test`. The build must have no new warnings.
+4. Test with a real phone if your change touches USB, networking, or the menu bar app.
+5. Open a pull request into `main` and fill in the template. CI must pass before merging.
 
 ## Reporting Issues
 

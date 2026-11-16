@@ -1,239 +1,152 @@
-# macOs_tether
+<p align="center">
+  <img src="docs/images/app-icon.png" width="128" height="128" alt="USB Tether icon">
+</p>
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2010.15%2B-brightgreen.svg)
-![Architecture: Universal](https://img.shields.io/badge/Arch-arm64%20%7C%20x86__64-orange.svg)
-![Version: 2.0](https://img.shields.io/badge/Version-2.0-purple.svg)
+<h1 align="center">USB Tether</h1>
 
-A userspace driver that enables Android's USB tethering (RNDIS) on macOS, including Apple Silicon Macs. No kernel extensions or SIP changes required.
+<p align="center">
+  Use your Android phone's internet on your Mac over a USB cable.<br>
+  No kernel extensions. No SIP changes. Works on Apple Silicon and Intel.
+</p>
 
-Maintained by Ammar Shahin.
+<p align="center">
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/ashahinL/macOs_tether?label=download" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/macOS-13%2B-brightgreen" alt="macOS 13 or later">
+  <img src="https://img.shields.io/badge/arch-Apple%20Silicon%20%7C%20Intel-orange" alt="Apple Silicon and Intel">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-macOS does not natively support the RNDIS protocol that Android uses for USB tethering. This tool bridges that gap by communicating with the Android device over USB using `libusb` and creating a virtual network interface via macOS's `utun`.
+<p align="center">
+  <img src="docs/images/popover-connected.png" width="380" alt="USB Tether menu showing a connected phone with live download and upload speeds">
+  <img src="docs/images/popover-connected-dark.png" width="380" alt="The same menu in dark mode">
+</p>
+
+## Why
+
+Android shares its connection over USB with a protocol called RNDIS. macOS has no RNDIS driver, and the old kernel-extension drivers no longer load on Apple Silicon. USB Tether talks to the phone from a normal background service instead, so it works on current Macs without lowering any security settings.
 
 ## Features
 
-- **Zero Password Prompts**: Runs as a LaunchDaemon — install once with `sudo`, never enter a password again
-- **Auto-Connect**: Automatically detects USB tethering and connects — just plug in your phone
-- **High Speed**: Async TX/RX libusb transfer pools (16 RX + 64 TX) for high-speed 5G tethering
-- **Menu Bar App**: Live speed display, total data usage, connection duration, and auto-connect toggle
-- **Graceful Cleanup**: Reliably restores macOS network routes and DNS on exit (even Ctrl+C)
-- **Universal Binary**: Compiles for both Apple Silicon (`arm64`) and Intel (`x86_64`)
-- **Safe Userspace**: Zero kernel extensions, no SIP changes needed
-- **Extensible Architecture**: Protocol driver abstraction allows community to add NCM/ECM support
-- **Single App Bundle**: The daemon and menu bar UI live in one `.app`. Use the uninstall script to remove the background service too
-- **macOS 10.15+**: Supports Catalina through the latest macOS versions
+- **Plug in and go.** Auto-connect starts tethering as soon as the phone is plugged in with USB tethering on.
+- **Menu bar app.** Live download and upload speed, a 60-second speed graph, data used this session, and connection time.
+- **One password, once.** The background service is installed by the installer. You never type a password to connect.
+- **Leaves your Mac as it found it.** Routes and DNS are removed when the phone disconnects or the service stops.
+- **Universal.** One download for Apple Silicon and Intel Macs.
 
-## How It Works
+## Install
 
+1. Download **USB-Tether-1.0.0.dmg** from the [latest release](../../releases/latest).
+2. Open the disk image and double-click **USB Tether.pkg**.
+3. USB Tether opens in the menu bar when the installer finishes.
+
+**If macOS blocks the installer.** Version 1.0.0 is not signed with an Apple Developer ID yet. Right-click **USB Tether.pkg** and choose **Open**, then click **Open** again. Or open **System Settings → Privacy & Security** and click **Open Anyway**. You only do this once.
+
+To check the download, compare its SHA-256 with the `.sha256` file on the release page:
+
+```bash
+shasum -a 256 -c USB-Tether-1.0.0.dmg.sha256
 ```
-Android Phone (RNDIS)  <-->  USB/libusb  <-->  macostether  <-->  utun interface  <-->  macOS networking
-```
 
-1. Detects the Android RNDIS device on USB
-2. Initializes the RNDIS protocol (init, query MAC, set packet filter)
-3. Performs DHCP to obtain an IP address from the Android device
-4. Creates a `utun` virtual network interface on macOS
-5. Bridges Ethernet frames between USB and the utun interface using async transfers
-6. Configures routing and DNS
+## Use
+
+1. Connect the phone to the Mac with a USB data cable.
+2. On the phone, turn on **USB tethering** (usually **Settings → Network & internet → Hotspot & tethering**).
+3. The menu bar icon turns solid when you are online.
+
+<p align="center">
+  <img src="docs/images/popover-waiting.png" width="380" alt="USB Tether waiting for a phone">
+  <img src="docs/images/popover-off.png" width="380" alt="USB Tether with auto-connect off">
+</p>
+
+Turn **Auto-connect** off if you want to connect only when you click **Connect**. The gear menu has **Open at Login** and **Show Speed in Menu Bar**.
+
+## Uninstall
+
+Open the disk image and double-click **Uninstall USB Tether.command**, then enter your admin password. It removes the app, the background service, its log, and the installer receipt.
 
 ## Requirements
 
-- macOS 10.15+ (Catalina or later, Apple Silicon or Intel)
-- [Homebrew](https://brew.sh)
-- An Android device with USB tethering enabled
-
-## Installation
-
-### Download (Recommended)
-
-Download the latest `.pkg` from [Releases](../../releases), double-click to install. Done.
-
-No Homebrew, no Xcode, no Terminal required.
-
-### Build from Source
-
-```bash
-# Install dependencies
-brew install libusb
-
-# Build and install (one-time sudo)
-make
-sudo make install
-
-# Or build a universal .pkg inside a .dmg (no Homebrew needed)
-make dist
-```
-
-### Uninstall
-
-Run `Uninstall USB Tether.command` from the disk image, or from this source checkout:
-
-```bash
-make uninstall
-```
-
-Enter your admin password when asked. This removes the app, background service, socket, log, and installer receipt.
-
-## Usage
-
-### Menu Bar App (Recommended)
-
-Open **macOs_tether.app** from `/Applications`. The menu bar shows:
-- Live download/upload speed (e.g. `📶 ↓12.3 ↑2.1`)
-- Connection status, duration, and total data usage
-- Auto-Connect toggle — disable to stop automatic connections
-- Stop button to disconnect the current session
-
-Just plug in your Android phone with USB tethering enabled — it connects automatically.
-
-### Command Line (Advanced)
-
-You can also run the daemon directly for debugging:
-
-```bash
-# One-shot mode
-sudo ./build/macOs_tether.app/Contents/MacOS/macostether
-
-# Watch mode (auto-connect, like the LaunchDaemon)
-sudo ./build/macOs_tether.app/Contents/MacOS/macostether --watch
-```
-
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `-n, --no-route` | Don't set up default route |
-| `-d, --no-dns` | Don't modify DNS settings |
-| `-s, --static IP` | Use a static IP instead of DHCP |
-| `-g, --gateway IP` | Set gateway (with `--static`) |
-| `-m, --netmask IP` | Set netmask (default: 255.255.255.0) |
-| `-w, --watch` | Watch mode: auto-connect when device detected |
-| `-v, --verbose` | Debug-level logging |
-| `-V, --version` | Show version |
-| `-c, --config FILE` | Use custom config file |
-
-### Configuration File
-
-Create `~/.config/macostether/config`:
-
-```ini
-[network]
-no_route = false
-no_dns = false
-# static_ip = 192.168.42.50
-# gateway = 192.168.42.129
-netmask = 255.255.255.0
-
-[logging]
-level = info
-
-[protocol]
-driver = rndis
-```
-
-CLI arguments override config file settings.
-
-### Examples
-
-```bash
-# Basic usage - auto-configures everything
-sudo macostether
-
-# Don't change existing routing or DNS
-sudo macostether --no-route --no-dns
-
-# Use static IP
-sudo macostether --static 192.168.42.50 --gateway 192.168.42.129
-
-# Verbose mode for debugging
-sudo macostether --verbose
-```
-
-## Architecture
-
-```
-include/
-  proto_driver.h    Protocol driver interface (RNDIS, NCM, ECM)
-  net_types.h       Shared network types (Ethernet, ARP, DHCP)
-  config.h          Configuration system
-  ipc.h             Unix domain socket IPC
-  log.h             Structured logging
-  compat.h          macOS version compatibility
-  rndis.h           RNDIS protocol definitions
-  usb_device.h      USB device interface
-  utun.h            macOS utun interface
-  dhcp.h            DHCP client
-  arp.h             ARP handler
-  frame.h           Frame conversion (Ethernet <-> utun)
-  stats.h           Statistics and legacy IPC
-
-src/
-  main.c            Session orchestration and bridge threads
-  proto_rndis.c     RNDIS protocol driver (via proto_driver_t)
-  rndis.c           Low-level RNDIS protocol implementation
-  usb_device.c      USB device discovery and communication
-  utun.c            macOS network interface management
-  dhcp.c            DHCP client (raw packet construction)
-  arp.c             ARP request/reply handling
-  frame.c           Ethernet <-> utun packet conversion
-  config.c          INI config file parser + CLI
-  ipc.c             Unix domain socket server
-  log.c             Logging system
-  compat.c          macOS version detection
-
-ui/
-  App.swift         Menu bar icon and popover
-  IPCClient.swift   Socket client for the daemon
-  TetherModel.swift Connection state, stats and settings
-  Views.swift       SwiftUI popover views
-
-resources/
-  Info.plist                              App bundle metadata
-  AppIcon.icns                            App icon (made by scripts/make-icon.swift)
-  entitlements.plist                      Code signing entitlements
-  com.ashahin.macostether.plist    launchd daemon plist
-```
-
-## Extending: Adding a New Protocol Driver
-
-To add support for a new USB tethering protocol (e.g., NCM or ECM):
-
-1. Create `src/proto_ncm.c`
-2. Implement the `proto_driver_t` interface (see `include/proto_driver.h`)
-3. Add a `proto_ncm_create()` constructor
-4. Register it in the driver lookup in `main.c`
-
-The protocol driver interface provides callbacks for:
-- `init()` - Protocol initialization over USB
-- `get_mac()` - Get device MAC address
-- `wrap_frame()` - Wrap Ethernet frame for USB transmission
-- `unwrap_data()` - Extract Ethernet frames from USB data
-- `keepalive()` - Periodic keepalive (optional)
-- `get_usb_filters()` - USB interface class/subclass/protocol for device discovery
+- macOS 13 Ventura or later.
+- An Android phone that tethers over **RNDIS**. Most phones do. Some recent phones use **NCM** instead, which is not supported yet.
+- A USB cable that carries data, not a charge-only cable.
 
 ## Troubleshooting
 
-**"No Android RNDIS device found"**
-- Make sure USB tethering is enabled *before* running the tool
-- Try unplugging and replugging the USB cable
-- Some USB cables are charge-only; use a data cable
+**The menu says "Waiting for phone" and nothing happens.**
+Check that USB tethering is on in the phone's settings. Unplug and replug the cable. Try another cable or port.
 
-**"Daemon Not Running" in menu bar app**
-- Run `sudo make install` to install the LaunchDaemon
-- Check logs: `cat /var/log/macostether.log`
+**The menu says "Service not running".**
+Reinstall USB Tether from the disk image. To see why the service stopped, read its log:
 
-**"Permission denied" or USB errors**
-- The daemon must run as root (handled automatically by the LaunchDaemon)
-- On macOS, you may need to allow the USB device in System Settings → Privacy & Security
+```bash
+cat /var/log/macostether.log
+```
 
-**DHCP fails**
-- Falls back to a default static IP (192.168.42.100)
-- Use `--static` to set your own IP
+**Another tethering app is installed.**
+Only one tethering service can use the phone at a time. Remove the other app first.
 
-**Connection drops**
-- In watch mode, the daemon auto-reconnects within 3 seconds
-- Check `/var/log/macostether.log` for details
+Still stuck? [Open an issue](../../issues/new/choose) with your macOS version, Mac model, phone model, and the log.
+
+## How it works
+
+```
+Android phone ──USB (RNDIS)──▶ macostether (root service) ──utun──▶ macOS network
+                                      ▲
+                                      │ local socket
+                               USB Tether (menu bar app)
+```
+
+1. The service finds the phone on USB with libusb and starts an RNDIS session.
+2. It asks the phone for an address with DHCP.
+3. It creates a `utun` network interface and moves packets between the phone and the Mac.
+4. It adds two routes (`0.0.0.0/1` and `128.0.0.0/1`) through the phone and sets DNS. Your normal default route stays untouched and comes back the moment the phone disconnects.
+
+The menu bar app talks to the service over `/var/run/macostether.sock`. Only root and the logged-in user can connect to it.
+
+## Build from source
+
+You need the Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+# Development build (uses Homebrew libusb)
+brew install libusb
+make
+make test
+
+# Install the development build on this Mac
+sudo make install
+
+# Release build: universal .pkg inside a .dmg, libusb built from pinned source
+make dist
+```
+
+`make dist` writes `build/USB-Tether-<version>.dmg` and its `.sha256`.
+
+### Command-line options
+
+The service can also run by hand for debugging. Stop the installed service first.
+
+```bash
+sudo "build/USBTether.app/Contents/MacOS/macostether" --verbose
+```
+
+| Flag | Description |
+|------|-------------|
+| `-w, --watch` | Keep running and connect whenever a phone appears |
+| `-n, --no-route` | Do not add routes |
+| `-d, --no-dns` | Do not change DNS |
+| `-s, --static IP` | Use a static address instead of DHCP |
+| `-g, --gateway IP` | Gateway to use with `--static` |
+| `-m, --netmask IP` | Netmask (default 255.255.255.0) |
+| `-c, --config FILE` | Read settings from FILE |
+| `-v, --verbose` | Debug logging |
+| `-V, --version` | Print the version |
+
+Settings can also live in `~/.config/macostether/config`. Command-line flags win.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
 ## Credits
 

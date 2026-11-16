@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: USB Tether version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: "macOS 15.1, MacBook Air M3"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: "OnePlus 12, Android 16"
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Service log
+      description: Output of `cat /var/log/macostether.log`. Remove anything private.
+      render: text
