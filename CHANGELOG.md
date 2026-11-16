@@ -21,6 +21,7 @@ First release as **USB Tether**.
 
 ### Changed
 - Renamed to USB Tether. The app installs as `/Applications/USB Tether.app`. The installer removes the old `macOs_tether.app`.
+- The GitHub repository moved to `ashahinL/usb-tether`. Old links redirect.
 - Auto-connect is on by default.
 - A newly opened menu bar app shows the current connection state right away.
 - Minimum macOS is now 13 Ventura.

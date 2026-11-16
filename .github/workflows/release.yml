@@ -25,6 +25,10 @@ jobs:
         run: tests/test_dist.sh
       - name: Read release notes
         run: |
+          if test -s "docs/release-notes/v$VERSION.md"; then
+            cp "docs/release-notes/v$VERSION.md" build/release-notes.md
+            exit 0
+          fi
           awk -v version="$VERSION" '
             /^## / {
               if (found) exit

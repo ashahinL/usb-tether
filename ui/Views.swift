@@ -418,7 +418,7 @@ struct ControlsSection: View {
 }
 
 enum AboutPanel {
-    static let projectURL = URL(string: "https://github.com/ashahinL/macOs_tether")!
+    static let projectURL = URL(string: "https://github.com/ashahinL/usb-tether")!
 
     /// The standard About panel. It shows the version from Info.plist.
     static func show() {
@@ -426,7 +426,7 @@ enum AboutPanel {
             string: "Use your Android phone's internet over a USB cable.\n",
             attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor])
         credits.append(NSAttributedString(
-            string: "github.com/ashahinL/macOs_tether",
+            string: "github.com/ashahinL/usb-tether",
             attributes: [.font: NSFont.systemFont(ofSize: 11), .link: projectURL]))
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center

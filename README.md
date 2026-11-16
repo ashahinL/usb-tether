@@ -10,10 +10,18 @@
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/ashahinL/macOs_tether?label=download" alt="Latest release"></a>
+  <a href="../../releases/latest"><img src="https://img.shields.io/github/v/release/ashahinL/usb-tether?label=download" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-brightgreen" alt="macOS 13 or later">
   <img src="https://img.shields.io/badge/arch-Apple%20Silicon%20%7C%20Intel-orange" alt="Apple Silicon and Intel">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <a href="../../actions/workflows/ci.yml"><img src="https://github.com/ashahinL/usb-tether/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status"></a>
+</p>
+
+<p align="center">
+  <a href="../../releases/latest"><b>Download for macOS</b></a> ·
+  <a href="#install">Install</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="#faq">FAQ</a>
 </p>
 
 <p align="center">
@@ -32,6 +40,7 @@ Android shares its connection over USB with a protocol called RNDIS. macOS has n
 - **One password, once.** The background service is installed by the installer. You never type a password to connect.
 - **Leaves your Mac as it found it.** Routes and DNS are removed when the phone disconnects or the service stops.
 - **Universal.** One download for Apple Silicon and Intel Macs.
+- **Private.** No accounts, no analytics, no update checks. The app never contacts any server.
 
 ## Install
 
@@ -70,6 +79,14 @@ Open the disk image and double-click **Uninstall USB Tether.command**, then ente
 - An Android phone that tethers over **RNDIS**. Most phones do. Some recent phones use **NCM** instead, which is not supported yet.
 - A USB cable that carries data, not a charge-only cable.
 
+### Tested phones
+
+| Phone | Android | Result |
+|---|---|---|
+| OnePlus CPH2585 | 16 | Works |
+
+Tried another phone? [Tell us how it went](../../issues/new/choose) so it can be added here.
+
 ## Troubleshooting
 
 **The menu says "Waiting for phone" and nothing happens.**
@@ -87,6 +104,20 @@ Only one tethering service can use the phone at a time. Remove the other app fir
 
 Still stuck? [Open an issue](../../issues/new/choose) with your macOS version, Mac model, phone model, and the log.
 
+## FAQ
+
+**Is it safe to install something that runs as root?**
+The background service needs root to create a network interface and set routes. It only talks to the USB phone and to the menu bar app on this Mac. It accepts commands only from root and the logged-in user, and it bounds-checks the packet lengths the phone sends. The source is all here, and [SECURITY.md](SECURITY.md) explains how to report a problem.
+
+**Can I keep Wi-Fi on?**
+Yes. While the phone is connected, internet traffic goes through the phone. When you disconnect, the Mac goes back to Wi-Fi by itself.
+
+**Does it work with an iPhone?**
+No, and it does not need to. macOS supports iPhone USB tethering on its own.
+
+**Why does macOS warn about the installer?**
+Version 1.0.0 is not signed with an Apple Developer ID yet. See [Install](#install) for the one-time step. Signing is planned.
+
 ## How it works
 
 ```
@@ -102,6 +133,9 @@ Android phone ──USB (RNDIS)──▶ macostether (root service) ──utun�
 4. It adds two routes (`0.0.0.0/1` and `128.0.0.0/1`) through the phone and sets DNS. Your normal default route stays untouched and comes back the moment the phone disconnects.
 
 The menu bar app talks to the service over `/var/run/macostether.sock`. Only root and the logged-in user can connect to it.
+
+<details>
+<summary><b>Build from source and command-line options</b></summary>
 
 ## Build from source
 
@@ -143,6 +177,8 @@ sudo "build/USBTether.app/Contents/MacOS/macostether" --verbose
 | `-V, --version` | Print the version |
 
 Settings can also live in `~/.config/macostether/config`. Command-line flags win.
+
+</details>
 
 ## Contributing
 
