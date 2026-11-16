@@ -19,9 +19,9 @@
 
     <!-- Log output -->
     <key>StandardErrorPath</key>
-    <string>/tmp/macostether.log</string>
+    <string>/var/log/macostether.log</string>
     <key>StandardOutPath</key>
-    <string>/tmp/macostether.log</string>
+    <string>/var/log/macostether.log</string>
 
     <!-- Run as root for network configuration -->
     <key>UserName</key>

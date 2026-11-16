@@ -41,7 +41,7 @@ BUILDDIR = build
 RESDIR = resources
 
 SRCS = $(SRCDIR)/main.c $(SRCDIR)/rndis.c $(SRCDIR)/usb_device.c $(SRCDIR)/utun.c \
-       $(SRCDIR)/log.c $(SRCDIR)/dhcp.c $(SRCDIR)/arp.c $(SRCDIR)/frame.c $(SRCDIR)/stats.c \
+       $(SRCDIR)/log.c $(SRCDIR)/dhcp.c $(SRCDIR)/arp.c $(SRCDIR)/frame.c \
        $(SRCDIR)/proto_rndis.c $(SRCDIR)/config.c $(SRCDIR)/ipc.c $(SRCDIR)/compat.c
 OBJS = $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 

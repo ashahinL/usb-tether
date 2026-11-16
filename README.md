@@ -183,7 +183,6 @@ src/
   config.c          INI config file parser + CLI
   ipc.c             Unix domain socket server
   log.c             Logging system
-  stats.c           Stats JSON writer
   compat.c          macOS version detection
 
 ui/
@@ -221,7 +220,7 @@ The protocol driver interface provides callbacks for:
 
 **"Daemon Not Running" in menu bar app**
 - Run `sudo make install` to install the LaunchDaemon
-- Check logs: `cat /tmp/macostether.log`
+- Check logs: `cat /var/log/macostether.log`
 
 **"Permission denied" or USB errors**
 - The daemon must run as root (handled automatically by the LaunchDaemon)
@@ -233,7 +232,7 @@ The protocol driver interface provides callbacks for:
 
 **Connection drops**
 - In watch mode, the daemon auto-reconnects within 3 seconds
-- Check `/tmp/macostether.log` for details
+- Check `/var/log/macostether.log` for details
 
 ## License
 

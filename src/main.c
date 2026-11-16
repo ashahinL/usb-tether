@@ -54,7 +54,6 @@ static void cleanup_at_exit(void)
 {
     LOG_I("main", "performing emergency cleanup...");
     restore_network_state();
-    stats_cleanup();
 }
 
 static void signal_handler(int sig)
@@ -620,8 +619,6 @@ static int run_session(int no_route, int no_dns,
                       (unsigned long long)st.tx_pkts,
                       (unsigned long long)st.rx_pkts);
 
-                stats_write_json(&st);
-
                 /* Send stats over IPC */
                 if (ipc)
                     ipc_server_send_stats(ipc, &st);
@@ -633,13 +630,6 @@ static int run_session(int no_route, int no_dns,
             /* Check if UI application quit unexpectedly (only in non-watch mode) */
             if (!g_watch_mode && g_ui_pid > 0 && kill(g_ui_pid, 0) != 0) {
                 LOG_I("main", "UI process %d died, shutting down daemon...", g_ui_pid);
-                g_running = 0;
-                atomic_store(&bctx.running, 0);
-            }
-
-            /* Check for stop trigger file (legacy) */
-            if (stats_check_stop_trigger()) {
-                LOG_I("main", "stop trigger detected, shutting down daemon...");
                 g_running = 0;
                 atomic_store(&bctx.running, 0);
             }
@@ -813,10 +803,6 @@ int main(int argc, char **argv)
             for (int i = 0; i < 6 && g_running; i++) {
                 if (g_ui_pid > 0 && kill(g_ui_pid, 0) != 0) {
                     LOG_I("main", "UI process %d died, shutting down daemon...", g_ui_pid);
-                    g_running = 0;
-                }
-                if (stats_check_stop_trigger()) {
-                    LOG_I("main", "stop trigger detected, shutting down daemon...");
                     g_running = 0;
                 }
                 if (ipc && ipc_server_poll(ipc) == IPC_CMD_STOP) {

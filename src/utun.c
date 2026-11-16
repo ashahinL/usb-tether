@@ -141,9 +141,6 @@ int utun_set_default_route(utun_t *tun, const char *gateway)
 /* configd service ID for our network service */
 #define SERVICE_ID "macostether"
 
-/* Path to save/restore original DNS config */
-#define DNS_BACKUP_FILE "/tmp/.macostether-dns-backup"
-
 int utun_register_service(utun_t *tun, const char *ip, const char *gateway,
                           const char *netmask, const char *dns1, const char *dns2)
 {
@@ -206,13 +203,6 @@ int utun_set_dns(const char *dns1, const char *dns2)
     char cmd[1024];
 
     snprintf(cmd, sizeof(cmd),
-        "scutil <<'EOF' > " DNS_BACKUP_FILE " 2>/dev/null\n"
-        "show State:/Network/Global/DNS\n"
-        "quit\n"
-        "EOF");
-    system(cmd);
-
-    snprintf(cmd, sizeof(cmd),
         "scutil <<'EOF'\n"
         "d.init\n"
         "d.add ServerAddresses * %s%s%s\n"
@@ -248,8 +238,6 @@ void utun_restore_dns(void)
 
     system("dscacheutil -flushcache 2>/dev/null");
     system("killall -HUP mDNSResponder 2>/dev/null");
-
-    unlink(DNS_BACKUP_FILE);
     LOG_I("dns", "original DNS restored");
 }
 
