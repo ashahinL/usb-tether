@@ -20,10 +20,19 @@ typedef struct {
    Returns 0 on success, -1 on failure. */
 int dhcp_discover(usb_device_t *usb, rndis_state_t *rndis, dhcp_lease_t *lease);
 
-/* Parse DHCP options from an offer/ack to extract gateway, netmask, DNS */
-void dhcp_parse_options(const uint8_t *opts, size_t len,
-                        struct in_addr *gateway, struct in_addr *netmask,
-                        struct in_addr *dns1, struct in_addr *dns2);
+/* Fields of a DHCP reply, in network byte order. 0 means absent. */
+typedef struct {
+    int msg_type;
+    uint32_t yiaddr;
+    uint32_t server_id;
+    uint32_t router;
+    uint32_t netmask;
+    uint32_t dns1;
+    uint32_t dns2;
+} dhcp_reply_t;
+
+/* Parse an Ethernet frame as a DHCP reply to xid. Returns 0 on success. */
+int dhcp_parse_reply(const uint8_t *frame, size_t len, uint32_t xid, dhcp_reply_t *reply);
 
 /* Build a DHCP discover packet inside an Ethernet frame.
    Returns frame length or -1 on error. */

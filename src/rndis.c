@@ -191,3 +191,23 @@ int rndis_parse_indicate_status(const uint8_t *buf, size_t len, uint32_t *status
     *status = ind->status;
     return 0;
 }
+
+void rndis_for_each_frame(const uint8_t *buf, size_t len, rndis_frame_cb on_frame, void *ctx)
+{
+    size_t offset = 0;
+
+    while (len - offset >= 8) {
+        uint32_t msg_len;
+        memcpy(&msg_len, buf + offset + 4, 4);
+
+        if (msg_len < 8 || msg_len > len - offset)
+            break;
+
+        const uint8_t *frame;
+        size_t frame_len;
+        if (rndis_parse_data_packet(buf + offset, msg_len, &frame, &frame_len) == 0)
+            on_frame(frame, frame_len, ctx);
+
+        offset += msg_len;
+    }
+}

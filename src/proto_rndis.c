@@ -104,25 +104,7 @@ static int rndis_drv_unwrap_data(proto_driver_t *drv, const uint8_t *usb_data, s
                                  proto_frame_cb on_frame, void *ctx)
 {
     (void)drv;
-    uint32_t offset = 0;
-
-    while (offset + 8 <= (uint32_t)usb_len) {
-        const uint8_t *pkt_ptr = usb_data + offset;
-        uint32_t msg_len;
-        memcpy(&msg_len, pkt_ptr + 4, 4);
-
-        if (msg_len == 0 || offset + msg_len > (uint32_t)usb_len)
-            break;
-
-        const uint8_t *frame;
-        size_t frame_len;
-        if (rndis_parse_data_packet(pkt_ptr, msg_len, &frame, &frame_len) == 0) {
-            on_frame(frame, frame_len, ctx);
-        }
-
-        offset += msg_len;
-    }
-
+    rndis_for_each_frame(usb_data, usb_len, on_frame, ctx);
     return 0;
 }
 

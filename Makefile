@@ -58,7 +58,7 @@ else
 CODESIGN_CMD = @true
 endif
 
-.PHONY: all clean install uninstall version pkg
+.PHONY: all clean install uninstall version pkg test
 
 all: $(APP)
 
@@ -87,6 +87,14 @@ $(APP): $(OBJS) ui/MenuApp.swift $(RESDIR)/Info.plist | $(BUILDDIR)
 	@echo "Build complete: $(APP) ($(VERSION))"
 	@echo "  Daemon: $(DAEMON)"
 	@echo "  UI:     $(UI)"
+
+TEST_SRCS = tests/test_parsers.c $(SRCDIR)/rndis.c $(SRCDIR)/dhcp.c $(SRCDIR)/log.c $(SRCDIR)/usb_device.c
+TEST_BIN = $(BUILDDIR)/test_parsers
+
+test: | $(BUILDDIR)
+	$(CC) $(filter-out -O2,$(CFLAGS)) -g -fsanitize=address,undefined \
+		$(TEST_SRCS) $(LDFLAGS) -o $(TEST_BIN)
+	$(TEST_BIN)
 
 clean:
 	rm -rf $(BUILDDIR)

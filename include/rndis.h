@@ -193,4 +193,9 @@ int rndis_parse_data_packet(const uint8_t *buf, size_t len,
                             const uint8_t **eth_frame, size_t *eth_len);
 int rndis_parse_indicate_status(const uint8_t *buf, size_t len, uint32_t *status);
 
+/* Calls on_frame for each Ethernet frame in a bulk IN transfer.
+   Stops at the first message whose length does not fit the transfer. */
+typedef void (*rndis_frame_cb)(const uint8_t *frame, size_t len, void *ctx);
+void rndis_for_each_frame(const uint8_t *buf, size_t len, rndis_frame_cb on_frame, void *ctx);
+
 #endif /* RNDIS_H */

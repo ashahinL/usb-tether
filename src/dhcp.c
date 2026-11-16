@@ -8,37 +8,116 @@
 
 #define TAG "dhcp"
 
-void dhcp_parse_options(const uint8_t *opts, size_t len,
-                        struct in_addr *gateway, struct in_addr *netmask,
-                        struct in_addr *dns1, struct in_addr *dns2)
+int dhcp_parse_reply(const uint8_t *frame, size_t len, uint32_t xid, dhcp_reply_t *reply)
 {
+    const size_t ip_start = sizeof(eth_hdr_t);
+
+    if (len < ip_start + 20)
+        return -1;
+
+    const eth_hdr_t *eth = (const eth_hdr_t *)frame;
+    if (ntohs(eth->ethertype) != 0x0800)
+        return -1;
+
+    const uint8_t *ip = frame + ip_start;
+    size_t ip_hdr_len = (size_t)(ip[0] & 0x0F) * 4;
+    if (ip_hdr_len < 20 || ip[9] != IPPROTO_UDP)
+        return -1;
+
+    size_t udp_start = ip_start + ip_hdr_len;
+    size_t dhcp_start = udp_start + 8;
+    if (len < dhcp_start + sizeof(dhcp_packet_t))
+        return -1;
+
+    uint16_t dport;
+    memcpy(&dport, frame + udp_start + 2, 2);
+    if (ntohs(dport) != DHCP_CLIENT_PORT)
+        return -1;
+
+    const dhcp_packet_t *dhcp = (const dhcp_packet_t *)(frame + dhcp_start);
+    if (ntohl(dhcp->magic) != DHCP_MAGIC_COOKIE || ntohl(dhcp->xid) != xid)
+        return -1;
+
+    memset(reply, 0, sizeof(*reply));
+    reply->yiaddr = dhcp->yiaddr;
+
+    const uint8_t *opts = dhcp->options;
+    size_t opts_len = len - dhcp_start - sizeof(dhcp_packet_t);
     size_t i = 0;
-    while (i < len) {
+    while (i < opts_len) {
         uint8_t opt = opts[i++];
         if (opt == 0xFF) break;
         if (opt == 0x00) continue;
-        if (i >= len) break;
+        if (i >= opts_len) break;
         uint8_t olen = opts[i++];
-        if (i + olen > len) break;
+        if (olen > opts_len - i) break;
 
+        const uint8_t *val = opts + i;
         switch (opt) {
-        case 1: /* Subnet mask */
-            if (olen >= 4)
-                memcpy(netmask, &opts[i], 4);
+        case 1:
+            if (olen >= 4) memcpy(&reply->netmask, val, 4);
             break;
-        case 3: /* Router/gateway */
-            if (olen >= 4)
-                memcpy(gateway, &opts[i], 4);
+        case 3:
+            if (olen >= 4) memcpy(&reply->router, val, 4);
             break;
-        case 6: /* DNS */
-            if (olen >= 4)
-                memcpy(dns1, &opts[i], 4);
-            if (olen >= 8)
-                memcpy(dns2, &opts[i + 4], 4);
+        case 6:
+            if (olen >= 4) memcpy(&reply->dns1, val, 4);
+            if (olen >= 8) memcpy(&reply->dns2, val + 4, 4);
+            break;
+        case 53:
+            if (olen >= 1) reply->msg_type = val[0];
+            break;
+        case 54:
+            if (olen >= 4) memcpy(&reply->server_id, val, 4);
             break;
         }
         i += olen;
     }
+
+    return 0;
+}
+
+typedef struct {
+    uint32_t xid;
+    int want_type;
+    int found;
+    dhcp_reply_t reply;
+} reply_wait_t;
+
+static void match_reply(const uint8_t *frame, size_t len, void *ctx)
+{
+    reply_wait_t *wait = ctx;
+    dhcp_reply_t reply;
+
+    if (wait->found)
+        return;
+    if (dhcp_parse_reply(frame, len, wait->xid, &reply) == 0 && reply.msg_type == wait->want_type) {
+        wait->reply = reply;
+        wait->found = 1;
+    }
+}
+
+static int wait_for_reply(usb_device_t *usb, uint32_t xid, int want_type, dhcp_reply_t *reply)
+{
+    uint8_t buf[RNDIS_BUF_SIZE];
+    reply_wait_t wait = { .xid = xid, .want_type = want_type };
+
+    for (int attempt = 0; attempt < 50 && !wait.found; attempt++) {
+        int ret = usb_recv_bulk(usb, buf, sizeof(buf), 200);
+        if (ret > 0)
+            rndis_for_each_frame(buf, (size_t)ret, match_reply, &wait);
+    }
+
+    if (!wait.found)
+        return -1;
+    *reply = wait.reply;
+    return 0;
+}
+
+static void copy_addr(char *dst, size_t dst_size, uint32_t addr, const char *fallback)
+{
+    struct in_addr in = { .s_addr = addr };
+    strlcpy(dst, addr ? inet_ntoa(in) : fallback, dst_size);
 }
 
 int dhcp_build_discover(uint8_t *buf, size_t buf_size,
@@ -198,84 +277,17 @@ int dhcp_discover(usb_device_t *usb, rndis_state_t *rndis, dhcp_lease_t *lease)
     ret = usb_send_bulk(usb, rndis_buf, rndis_len);
     if (ret < 0) return -1;
 
-    /* Wait for DHCP offer */
-    struct in_addr offered_addr = {0};
-    struct in_addr server_addr = {0};
-    struct in_addr gw = {0}, mask = {0}, d1 = {0}, d2 = {0};
-
-    for (int attempt = 0; attempt < 50; attempt++) {
-        ret = usb_recv_bulk(usb, rndis_buf, sizeof(rndis_buf), 200);
-        if (ret <= 0) continue;
-
-        uint32_t offset = 0;
-        int found_offer = 0;
-        while (offset + 8 <= (uint32_t)ret) {
-            const uint8_t *pkt_ptr = rndis_buf + offset;
-            uint32_t msg_type, msg_len;
-            memcpy(&msg_type, pkt_ptr, 4);
-            memcpy(&msg_len, pkt_ptr + 4, 4);
-
-            if (msg_len == 0 || offset + msg_len > (uint32_t)ret) break;
-
-            const uint8_t *frame;
-            size_t frame_len;
-            if (rndis_parse_data_packet(pkt_ptr, msg_len, &frame, &frame_len) == 0) {
-                if (frame_len >= sizeof(eth_hdr_t) + 20 + 8 + sizeof(dhcp_packet_t)) {
-                    const eth_hdr_t *eth = (const eth_hdr_t *)frame;
-                    if (ntohs(eth->ethertype) == 0x0800) {
-                        const struct ip *iph = (const struct ip *)(frame + sizeof(eth_hdr_t));
-                        if (iph->ip_p == IPPROTO_UDP) {
-                            const uint8_t *udp = (const uint8_t *)iph + (iph->ip_hl * 4);
-                            uint16_t dport;
-                            memcpy(&dport, udp + 2, 2);
-                            if (ntohs(dport) == DHCP_CLIENT_PORT) {
-                                const dhcp_packet_t *dhcp = (const dhcp_packet_t *)(udp + 8);
-                                if (ntohl(dhcp->magic) == DHCP_MAGIC_COOKIE && ntohl(dhcp->xid) == xid) {
-                                    size_t opts_offset = (size_t)((const uint8_t *)dhcp->options - frame);
-                                    size_t opts_len = frame_len - opts_offset;
-                                    const uint8_t *opts = dhcp->options;
-
-                                    int msg_type_dhcp = 0;
-                                    for (size_t i = 0; i < opts_len; ) {
-                                        if (opts[i] == 0xFF) break;
-                                        if (opts[i] == 0x00) { i++; continue; }
-                                        if (i + 1 >= opts_len) break;
-                                        uint8_t olen = opts[i + 1];
-                                        if (opts[i] == 53 && olen >= 1)
-                                            msg_type_dhcp = opts[i + 2];
-                                        if (opts[i] == 54 && olen >= 4)
-                                            memcpy(&server_addr, &opts[i + 2], 4);
-                                        i += 2 + olen;
-                                    }
-
-                                    if (msg_type_dhcp == 2) { /* DHCP Offer */
-                                        offered_addr.s_addr = dhcp->yiaddr;
-                                        dhcp_parse_options(dhcp->options, opts_len, &gw, &mask, &d1, &d2);
-                                        LOG_I(TAG, "offer: %s", inet_ntoa(offered_addr));
-                                        found_offer = 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (found_offer) break;
-            offset += msg_len;
-        }
-        if (found_offer) break;
-    }
-
-    if (offered_addr.s_addr == 0) {
+    dhcp_reply_t offer;
+    if (wait_for_reply(usb, xid, 2, &offer) < 0) {
         LOG_E(TAG, "no offer received");
         return -1;
     }
 
-    /* Send DHCP request */
+    struct in_addr offered_addr = { .s_addr = offer.yiaddr };
     LOG_I(TAG, "sending DHCP request for %s...", inet_ntoa(offered_addr));
 
     len = dhcp_build_request(eth_buf, sizeof(eth_buf), rndis->mac_addr, xid,
-                             offered_addr.s_addr, server_addr.s_addr);
+                             offer.yiaddr, offer.server_id);
     if (len < 0) return -1;
 
     rndis_len = rndis_build_data_packet(rndis_buf, sizeof(rndis_buf), eth_buf, len);
@@ -284,90 +296,23 @@ int dhcp_discover(usb_device_t *usb, rndis_state_t *rndis, dhcp_lease_t *lease)
     ret = usb_send_bulk(usb, rndis_buf, rndis_len);
     if (ret < 0) return -1;
 
-    /* Wait for DHCP ACK */
-    for (int attempt = 0; attempt < 50; attempt++) {
-        ret = usb_recv_bulk(usb, rndis_buf, sizeof(rndis_buf), 200);
-        if (ret <= 0) continue;
-
-        uint32_t offset = 0;
-        while (offset + 8 <= (uint32_t)ret) {
-            const uint8_t *pkt_ptr = rndis_buf + offset;
-            uint32_t msg_type, msg_len;
-            memcpy(&msg_type, pkt_ptr, 4);
-            memcpy(&msg_len, pkt_ptr + 4, 4);
-
-            if (msg_len == 0 || offset + msg_len > (uint32_t)ret) break;
-
-            const uint8_t *frame;
-            size_t frame_len;
-            if (rndis_parse_data_packet(pkt_ptr, msg_len, &frame, &frame_len) == 0) {
-                if (frame_len >= sizeof(eth_hdr_t) + 20 + 8 + sizeof(dhcp_packet_t)) {
-                    const eth_hdr_t *eth = (const eth_hdr_t *)frame;
-                    if (ntohs(eth->ethertype) == 0x0800) {
-                        const struct ip *iph = (const struct ip *)(frame + sizeof(eth_hdr_t));
-                        if (iph->ip_p == IPPROTO_UDP) {
-                            const uint8_t *udp = (const uint8_t *)iph + (iph->ip_hl * 4);
-                            uint16_t dport;
-                            memcpy(&dport, udp + 2, 2);
-                            if (ntohs(dport) == DHCP_CLIENT_PORT) {
-                                const dhcp_packet_t *dhcp = (const dhcp_packet_t *)(udp + 8);
-                                if (ntohl(dhcp->magic) == DHCP_MAGIC_COOKIE && ntohl(dhcp->xid) == xid) {
-                                    size_t opts_offset = (size_t)((const uint8_t *)dhcp->options - frame);
-                                    size_t opts_len = frame_len - opts_offset;
-
-                                    int msg_type_dhcp = 0;
-                                    for (size_t i = 0; i < opts_len; ) {
-                                        if (dhcp->options[i] == 0xFF) break;
-                                        if (dhcp->options[i] == 0x00) { i++; continue; }
-                                        if (i + 1 >= opts_len) break;
-                                        uint8_t olen = dhcp->options[i + 1];
-                                        if (dhcp->options[i] == 53 && olen >= 1)
-                                            msg_type_dhcp = dhcp->options[i + 2];
-                                        i += 2 + olen;
-                                    }
-
-                                    if (msg_type_dhcp == 5) { /* DHCP ACK */
-                                        dhcp_parse_options(dhcp->options, opts_len, &gw, &mask, &d1, &d2);
-
-                                        struct in_addr addr;
-                                        addr.s_addr = dhcp->yiaddr;
-                                        strlcpy(lease->ip, inet_ntoa(addr), sizeof(lease->ip));
-
-                                        if (gw.s_addr)
-                                            strlcpy(lease->gateway, inet_ntoa(gw), sizeof(lease->gateway));
-                                        else
-                                            strlcpy(lease->gateway, DEFAULT_GATEWAY, sizeof(lease->gateway));
-
-                                        if (mask.s_addr)
-                                            strlcpy(lease->netmask, inet_ntoa(mask), sizeof(lease->netmask));
-                                        else
-                                            strlcpy(lease->netmask, DEFAULT_NETMASK, sizeof(lease->netmask));
-
-                                        if (d1.s_addr)
-                                            strlcpy(lease->dns1, inet_ntoa(d1), sizeof(lease->dns1));
-                                        else
-                                            strlcpy(lease->dns1, DEFAULT_DNS1, sizeof(lease->dns1));
-
-                                        if (d2.s_addr)
-                                            strlcpy(lease->dns2, inet_ntoa(d2), sizeof(lease->dns2));
-                                        else
-                                            strlcpy(lease->dns2, DEFAULT_DNS2, sizeof(lease->dns2));
-
-                                        LOG_I(TAG, "ACK: ip=%s gw=%s mask=%s dns=%s,%s",
-                                              lease->ip, lease->gateway, lease->netmask,
-                                              lease->dns1, lease->dns2);
-                                        return 0;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            offset += msg_len;
-        }
+    dhcp_reply_t ack;
+    if (wait_for_reply(usb, xid, 5, &ack) < 0) {
+        LOG_E(TAG, "no ACK received");
+        return -1;
     }
 
-    LOG_E(TAG, "no ACK received");
-    return -1;
+    copy_addr(lease->ip, sizeof(lease->ip), ack.yiaddr, DEFAULT_STATIC_IP);
+    copy_addr(lease->gateway, sizeof(lease->gateway),
+              ack.router ? ack.router : offer.router, DEFAULT_GATEWAY);
+    copy_addr(lease->netmask, sizeof(lease->netmask),
+              ack.netmask ? ack.netmask : offer.netmask, DEFAULT_NETMASK);
+    copy_addr(lease->dns1, sizeof(lease->dns1),
+              ack.dns1 ? ack.dns1 : offer.dns1, DEFAULT_DNS1);
+    copy_addr(lease->dns2, sizeof(lease->dns2),
+              ack.dns2 ? ack.dns2 : offer.dns2, DEFAULT_DNS2);
+
+    LOG_I(TAG, "ACK: ip=%s gw=%s mask=%s dns=%s,%s",
+          lease->ip, lease->gateway, lease->netmask, lease->dns1, lease->dns2);
+    return 0;
 }
