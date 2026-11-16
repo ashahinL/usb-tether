@@ -17,10 +17,10 @@ PKG_ROOT="$BUILD_DIR/pkg-root"
 PKG_SCRIPTS="$ROOT_DIR/scripts"
 
 VERSION=$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || echo "dev")
-PKG_NAME="macOs_tether-${VERSION}.pkg"
+PKG_NAME="USB-Tether-${VERSION}.pkg"
 
 echo ""
-echo -e "${BOLD}=== Building macOs_tether.pkg ($VERSION) ===${NC}"
+echo -e "${BOLD}=== Building USB Tether installer ($VERSION) ===${NC}"
 echo ""
 
 # Step 1: Build with static libusb
@@ -30,7 +30,7 @@ make -C "$ROOT_DIR" STATIC=1 || fail "Build failed"
 ok "Build successful"
 
 # Step 2: Verify no dynamic libusb dependency
-if otool -L "$BUILD_DIR/macOs_tether.app/Contents/MacOS/macostether" | grep -q libusb; then
+if otool -L "$BUILD_DIR/USBTether.app/Contents/MacOS/macostether" | grep -q libusb; then
     fail "Binary still links to dynamic libusb! Static build failed."
 fi
 ok "No external dylib dependencies"
@@ -41,7 +41,7 @@ rm -rf "$PKG_ROOT"
 mkdir -p "$PKG_ROOT/Applications"
 mkdir -p "$PKG_ROOT/Library/LaunchDaemons"
 
-cp -R "$BUILD_DIR/macOs_tether.app" "$PKG_ROOT/Applications/"
+cp -R "$BUILD_DIR/USBTether.app" "$PKG_ROOT/Applications/USB Tether.app"
 cp "$ROOT_DIR/resources/com.ashahin.macostether.plist" \
    "$PKG_ROOT/Library/LaunchDaemons/"
 

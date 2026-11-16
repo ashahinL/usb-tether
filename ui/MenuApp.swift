@@ -194,7 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.title = "⚡ Tether"
-            button.toolTip = "macOs_tether"
+            button.toolTip = "USB Tether"
         }
 
         buildMenu()
@@ -475,7 +475,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 */
         let alert = NSAlert()
         alert.messageText = "Open at Login"
-        alert.informativeText = "Please add macOs_tether to System Settings → Login Items."
+        alert.informativeText = "Please add USB Tether to System Settings → Login Items."
         alert.runModal()
     }
 

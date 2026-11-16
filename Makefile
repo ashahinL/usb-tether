@@ -12,14 +12,14 @@ ifeq ($(UNIVERSAL), 1)
 	ARCH_FLAGS = -arch arm64 -arch x86_64
 endif
 
-# Minimum macOS version (10.15 Catalina)
-CFLAGS += -mmacosx-version-min=10.15
-LDFLAGS += -mmacosx-version-min=10.15
+# Minimum macOS version (13 Ventura)
+CFLAGS += -mmacosx-version-min=13.0
+LDFLAGS += -mmacosx-version-min=13.0
 MAC_SDK := $(shell xcrun --show-sdk-path)
 ifeq ($(UNIVERSAL), 1)
-	SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target arm64-apple-macos11.0 -target x86_64-apple-macos11.0
+	SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target arm64-apple-macos13.0 -target x86_64-apple-macos13.0
 else
-	SWIFT_FLAGS = -O -sdk $(MAC_SDK)
+	SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target $(shell uname -m)-apple-macos13.0
 endif
 
 # libusb from Homebrew
@@ -46,10 +46,11 @@ SRCS = $(SRCDIR)/main.c $(SRCDIR)/rndis.c $(SRCDIR)/usb_device.c $(SRCDIR)/utun.
 OBJS = $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 
 # Everything lives inside one .app bundle
-APP = $(BUILDDIR)/macOs_tether.app
+APP = $(BUILDDIR)/USBTether.app
+INSTALLED_APP = /Applications/USB Tether.app
 APP_MACOS = $(APP)/Contents/MacOS
 DAEMON = $(APP_MACOS)/macostether
-UI = $(APP_MACOS)/macOs_tetherUI
+UI = $(APP_MACOS)/USBTether
 
 # Optional code signing
 ifdef SIGN_IDENTITY
@@ -103,11 +104,11 @@ PLIST_SRC = $(RESDIR)/com.ashahin.macostether.plist
 PLIST_DST = /Library/LaunchDaemons/com.ashahin.macostether.plist
 
 install: $(APP)
-	@echo "Installing macOs_tether.app to /Applications..."
+	@echo "Installing USB Tether to /Applications..."
 	@# Stop existing daemon if running
 	launchctl unload $(PLIST_DST) 2>/dev/null || true
-	rm -rf /Applications/macOs_tether.app
-	cp -R $(APP) /Applications/
+	rm -rf /Applications/macOs_tether.app "$(INSTALLED_APP)"
+	cp -R $(APP) "$(INSTALLED_APP)"
 	@echo "Installing LaunchDaemon..."
 	cp $(PLIST_SRC) $(PLIST_DST)
 	chown root:wheel $(PLIST_DST)
@@ -115,15 +116,15 @@ install: $(APP)
 	launchctl load $(PLIST_DST)
 	@echo ""
 	@echo "Installed. The daemon is now running in watch mode."
-	@echo "Open macOs_tether.app from /Applications for the menu bar UI."
+	@echo "Open USB Tether from /Applications for the menu bar UI."
 	@echo "The daemon runs as a system service, so it does not ask for a password again."
 
 uninstall:
 	launchctl unload $(PLIST_DST) 2>/dev/null || true
 	rm -f $(PLIST_DST)
-	rm -rf /Applications/macOs_tether.app
+	rm -rf "$(INSTALLED_APP)"
 	rm -f /var/run/macostether.sock
-	@echo "Uninstalled macOs_tether.app and LaunchDaemon"
+	@echo "Uninstalled USB Tether and its LaunchDaemon"
 
 pkg:
 	@scripts/build-pkg.sh

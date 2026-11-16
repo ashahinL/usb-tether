@@ -29,13 +29,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: macOs_tether ${{ steps.version.outputs.tag }}
+          name: USB Tether ${{ steps.version.outputs.tag }}
           body: |
             ## Installation
 
-            1. Download **macOs_tether-${{ steps.version.outputs.tag }}.pkg** below
+            1. Download **USB-Tether-${{ steps.version.outputs.tag }}.pkg** below
             2. Double-click to install
-            3. Open **macOs_tether** from Applications
+            3. Open **USB Tether** from Applications
 
             No Homebrew, no Xcode, no Terminal required.
             The daemon runs automatically. Plug in your Android phone with USB tethering enabled.
@@ -44,8 +44,8 @@ jobs:
             ```bash
             sudo launchctl unload /Library/LaunchDaemons/com.ashahin.macostether.plist
             sudo rm /Library/LaunchDaemons/com.ashahin.macostether.plist
-            rm -rf /Applications/macOs_tether.app
+            sudo rm -rf "/Applications/USB Tether.app"
             ```
-          files: build/macOs_tether-*.pkg
+          files: build/USB-Tether-*.pkg
           draft: false
           prerelease: false

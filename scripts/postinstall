@@ -1,5 +1,5 @@
 #!/bin/bash
-# Post-install script for macOs_tether.pkg
+# Post-install script for the USB Tether installer
 # Runs as root after the files are installed
 
 PLIST="/Library/LaunchDaemons/com.ashahin.macostether.plist"

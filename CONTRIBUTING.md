@@ -1,4 +1,4 @@
-# Contributing to macOs_tether
+# Contributing to USB Tether
 
 Thank you for your interest in contributing! This guide will help you get started.
 
@@ -28,7 +28,7 @@ make V=1
 
 ```bash
 # Run the daemon (requires root)
-sudo ./build/macOs_tether.app/Contents/MacOS/macostether --verbose
+sudo ./build/USBTether.app/Contents/MacOS/macostether --verbose
 
 # Install locally
 sudo make install

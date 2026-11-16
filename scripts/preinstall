@@ -1,11 +1,11 @@
 #!/bin/bash
-# Pre-install script for macOs_tether.pkg
+# Pre-install script for the USB Tether installer
 # Runs as root before files are installed
 
 # Stop existing daemon if running
 launchctl unload /Library/LaunchDaemons/com.ashahin.macostether.plist 2>/dev/null || true
 
-# Remove old app if present
-rm -rf /Applications/macOs_tether.app
+# Remove the old app, including the name used before 1.0.0
+rm -rf /Applications/macOs_tether.app "/Applications/USB Tether.app"
 
 exit 0

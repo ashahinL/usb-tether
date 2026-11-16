@@ -17,7 +17,7 @@ Ship the C app as a product named **USB Tether**, version **1.0.0**, as a `.pkg`
 ## Tasks
 
 1. Done. License and credit. Restore the original copyright line, add Ammar's, credit the original project in the README. Owner: Claude.
-2. Rename to USB Tether and set version 1.0.0. Info.plist, Makefile app path, LaunchDaemon `ProgramArguments`, pkg scripts, install.sh, release workflow, UI strings. Preinstall removes the old `macOs_tether.app`. Owner: Claude.
+2. Done. Rename to USB Tether and set version 1.0.0. Info.plist, Makefile app path, LaunchDaemon `ProgramArguments`, pkg scripts, install.sh, release workflow, UI strings. Preinstall removes the old `macOs_tether.app`. Owner: Claude.
 3. New menu-bar UI. SwiftUI popover from a template menu-bar icon: connection state, phone IP, live down/up speed, session data, duration, Connect/Disconnect, Auto-connect, Open at Login, About, Quit. Clear states for "service not running", "waiting for phone", "connected", "error". App icon (`.icns`). Lane: `art` (Claude Opus 5.5, high).
 4. Packaging. Universal static libusb from pinned source, `make dist` producing the `.pkg` and the `.dmg`, uninstall script, preinstall and postinstall that also clean up the old name. Lane: `complex` (Sol, medium).
 5. CI. Pull request workflow: build plus `make test`. Tag workflow: build the `.dmg`, attach it and its SHA-256 to a GitHub release. Pin actions by commit SHA. Lane: `second` (Terra, medium).
