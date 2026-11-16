@@ -1,77 +1,61 @@
 #!/bin/bash
-set -e
-
-BOLD='\033[1m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-info()  { echo -e "${BOLD}[*]${NC} $1"; }
-ok()    { echo -e "${GREEN}[+]${NC} $1"; }
-fail()  { echo -e "${RED}[-]${NC} $1"; exit 1; }
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$ROOT_DIR/build"
-PKG_ROOT="$BUILD_DIR/pkg-root"
-PKG_SCRIPTS="$ROOT_DIR/scripts"
-
-VERSION=$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || echo "dev")
-PKG_NAME="macOs_tether-${VERSION}.pkg"
-
-echo ""
-echo -e "${BOLD}=== Building macOs_tether.pkg ($VERSION) ===${NC}"
-echo ""
-
-# Step 1: Build with static libusb
-info "Building with static libusb..."
-make -C "$ROOT_DIR" clean 2>/dev/null || true
-make -C "$ROOT_DIR" STATIC=1 || fail "Build failed"
-ok "Build successful"
-
-# Step 2: Verify no dynamic libusb dependency
-if otool -L "$BUILD_DIR/macOs_tether.app/Contents/MacOS/macostether" | grep -q libusb; then
-    fail "Binary still links to dynamic libusb! Static build failed."
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD="$ROOT_DIR/build"
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/resources/Info.plist")
+APP="$BUILD/release/USBTether.app"
+STAGE="$BUILD/pkg-root"
+PKG_WORK="$BUILD/pkg-work"
+DMG_ROOT="$BUILD/dmg-root"
+if otool -L "$APP/Contents/MacOS/macostether" | grep -E 'libusb.*dylib|/opt/homebrew|/usr/local'; then
+    echo 'Release daemon has an external library dependency.' >&2
+    exit 1
 fi
-ok "No external dylib dependencies"
+rm -rf "$STAGE" "$PKG_WORK" "$DMG_ROOT"
+mkdir -p "$STAGE/Applications" "$STAGE/Library/LaunchDaemons" "$PKG_WORK/scripts" "$DMG_ROOT"
+ditto "$APP" "$STAGE/Applications/USB Tether.app"
+cp "$ROOT_DIR/resources/com.ashahin.macostether.plist" "$STAGE/Library/LaunchDaemons/"
+cp "$ROOT_DIR/scripts/preinstall" "$ROOT_DIR/scripts/postinstall" "$PKG_WORK/scripts/"
+chmod 755 "$PKG_WORK/scripts/"*
+pkgbuild --analyze --root "$STAGE" "$PKG_WORK/component.plist"
+/usr/libexec/PlistBuddy -c 'Set :0:BundleIsRelocatable false' "$PKG_WORK/component.plist"
+pkgbuild --root "$STAGE" --scripts "$PKG_WORK/scripts" \
+    --identifier com.ashahin.macostether --version "$VERSION" --install-location / \
+    --component-plist "$PKG_WORK/component.plist" "$PKG_WORK/component.pkg"
+cat > "$PKG_WORK/distribution.xml" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>USB Tether</title>
+    <welcome file="welcome.html"/>
+    <conclusion file="conclusion.html"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <allowed-os-versions><os-version min="13.0"/></allowed-os-versions>
+    <choices-outline><line choice="default"/></choices-outline>
+    <choice id="default" visible="false"><pkg-ref id="com.ashahin.macostether"/></choice>
+    <pkg-ref id="com.ashahin.macostether" version="$VERSION" onConclusion="none">component.pkg</pkg-ref>
+</installer-gui-script>
+XML
+set --
+if [[ -n "${INSTALLER_SIGN_IDENTITY:-}" ]]; then
+    set -- --sign "$INSTALLER_SIGN_IDENTITY"
+fi
+productbuild --distribution "$PKG_WORK/distribution.xml" --package-path "$PKG_WORK" \
+    --resources "$ROOT_DIR/resources/installer" "$@" "$BUILD/USB Tether.pkg"
+cp "$BUILD/USB Tether.pkg" "$DMG_ROOT/"
+cp "$ROOT_DIR/scripts/uninstall.sh" "$DMG_ROOT/Uninstall USB Tether.command"
+chmod 755 "$DMG_ROOT/Uninstall USB Tether.command"
+cat > "$DMG_ROOT/README.txt" <<TXT
+Install
+Open USB Tether.pkg and follow the installer. Requires macOS 13 or later.
 
-# Step 3: Create pkg staging area
-info "Preparing package contents..."
-rm -rf "$PKG_ROOT"
-mkdir -p "$PKG_ROOT/Applications"
-mkdir -p "$PKG_ROOT/Library/LaunchDaemons"
+First run if macOS blocks the installer
+Right-click > Open, or System Settings > Privacy & Security > Open Anyway.
+Then open USB Tether from Applications and enable USB tethering on your phone.
 
-cp -R "$BUILD_DIR/macOs_tether.app" "$PKG_ROOT/Applications/"
-cp "$ROOT_DIR/resources/com.ashahin.macostether.plist" \
-   "$PKG_ROOT/Library/LaunchDaemons/"
-
-# Step 4: Generate component plist and disable relocation
-info "Building installer package..."
-COMPONENT_PLIST="$BUILD_DIR/component.plist"
-pkgbuild --analyze --root "$PKG_ROOT" "$COMPONENT_PLIST"
-
-# Disable bundle relocation so the app always goes to /Applications
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
-
-pkgbuild \
-    --root "$PKG_ROOT" \
-    --scripts "$PKG_SCRIPTS" \
-    --identifier "com.ashahin.macostether" \
-    --version "$VERSION" \
-    --install-location "/" \
-    --component-plist "$COMPONENT_PLIST" \
-    "$BUILD_DIR/$PKG_NAME"
-
-rm -f "$COMPONENT_PLIST"
-
-ok "Package built: build/$PKG_NAME"
-
-# Step 5: Clean up staging
-rm -rf "$PKG_ROOT"
-
-echo ""
-echo -e "${GREEN}${BOLD}Done!${NC} Installer: ${BOLD}build/$PKG_NAME${NC}"
-echo ""
-echo "Users just double-click the .pkg to install."
-echo "No Homebrew, no Xcode, no Terminal required."
-echo ""
+Uninstall
+Run Uninstall USB Tether.command and enter your admin password.
+TXT
+DMG="USB-Tether-$VERSION.dmg"
+hdiutil create -ov -format UDZO -volname "USB Tether $VERSION" -srcfolder "$DMG_ROOT" "$BUILD/$DMG"
+(cd "$BUILD" && shasum -a 256 "$DMG" > "$DMG.sha256")
+echo "Built build/$DMG and build/$DMG.sha256"

@@ -11,7 +11,7 @@ ok()    { echo -e "${GREEN}[+]${NC} $1"; }
 fail()  { echo -e "${RED}[-]${NC} $1"; exit 1; }
 
 echo ""
-echo -e "${BOLD}=== macOs_tether ===${NC}"
+echo -e "${BOLD}=== USB Tether ===${NC}"
 echo ""
 
 # Check for Homebrew
@@ -44,7 +44,7 @@ CONFIG_DIR="$HOME/.config/macostether"
 if [ ! -d "$CONFIG_DIR" ]; then
     mkdir -p "$CONFIG_DIR"
     cat > "$CONFIG_DIR/config" << 'CONF'
-# macOs_tether configuration
+# USB Tether configuration
 [network]
 # no_route = false
 # no_dns = false
@@ -58,7 +58,7 @@ fi
 echo ""
 echo -e "${GREEN}${BOLD}Done!${NC} The tethering daemon is now running in the background."
 echo ""
-echo "  Open ${BOLD}macOs_tether.app${NC} from /Applications for the menu bar UI."
+echo "  Open ${BOLD}USB Tether${NC} from /Applications for the menu bar UI."
 echo "  The daemon auto-connects when an Android device with USB tethering is detected."
 echo "  No password prompts needed!"
 echo ""

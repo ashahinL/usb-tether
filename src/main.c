@@ -69,7 +69,7 @@ static void print_usage(const char *prog)
     fprintf(stderr,
         "Usage: %s [options]\n"
         "\n"
-        "macOs_tether: Android USB tethering for macOS (RNDIS)\n"
+        "USB Tether: Android USB tethering for macOS (RNDIS)\n"
         "\n"
         "Options:\n"
         "  -n, --no-route      Don't set up default route (manual configuration)\n"
@@ -726,7 +726,7 @@ int main(int argc, char **argv)
     signal(SIGTERM, signal_handler);
 
     macos_version_t ver = compat_macos_version();
-    LOG_I("main", "=== macOs_tether ===");
+    LOG_I("main", "=== USB Tether ===");
 #ifdef VERSION
     LOG_I("main", "version %s on %s %d.%d.%d%s", VERSION,
           compat_macos_name(), ver.major, ver.minor, ver.patch,

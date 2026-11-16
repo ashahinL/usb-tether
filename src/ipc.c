@@ -20,6 +20,7 @@ struct ipc_server {
     int listen_fd;
     int client_fds[MAX_CLIENTS];
     int num_clients;
+    char last_state[256];
 };
 
 static void set_nonblocking(int fd)
@@ -146,6 +147,9 @@ int ipc_server_poll(ipc_server_t *srv)
             srv->client_fds[slot] = client_fd;
             srv->num_clients++;
             LOG_D(TAG, "client connected (slot %d)", slot);
+            /* State is sent only on change, so a new client needs the current one now. */
+            if (srv->last_state[0])
+                send_to_client(client_fd, srv->last_state);
         } else {
             /* Too many clients */
             close(client_fd);
@@ -201,13 +205,13 @@ void ipc_server_send_state(ipc_server_t *srv, const char *state,
 {
     if (!srv) return;
 
-    char json[256];
+    char *json = srv->last_state;
     if (ip && iface) {
-        snprintf(json, sizeof(json),
+        snprintf(json, sizeof(srv->last_state),
             "{\"type\":\"state\",\"state\":\"%s\",\"ip\":\"%s\",\"iface\":\"%s\"}\n",
             state, ip, iface);
     } else {
-        snprintf(json, sizeof(json),
+        snprintf(json, sizeof(srv->last_state),
             "{\"type\":\"state\",\"state\":\"%s\"}\n", state);
     }
 

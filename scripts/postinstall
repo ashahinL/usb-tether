@@ -1,17 +1,11 @@
 #!/bin/bash
-# Post-install script for macOs_tether.pkg
-# Runs as root after the files are installed
-
-PLIST="/Library/LaunchDaemons/com.ashahin.macostether.plist"
-
-# Unload old daemon if present
-launchctl unload "$PLIST" 2>/dev/null || true
-
-# Set correct ownership and permissions
+PLIST=/Library/LaunchDaemons/com.ashahin.macostether.plist
 chown root:wheel "$PLIST"
 chmod 644 "$PLIST"
-
-# Load the daemon
-launchctl load "$PLIST"
-
+launchctl bootstrap system "$PLIST"
+CONSOLE_USER=$(stat -f '%Su' /dev/console)
+if [[ "$CONSOLE_USER" != root && "$CONSOLE_USER" != loginwindow && -n "$CONSOLE_USER" ]]; then
+    launchctl asuser "$(id -u "$CONSOLE_USER")" /usr/bin/su - "$CONSOLE_USER" \
+        -c '/usr/bin/open "/Applications/USB Tether.app"' >/dev/null 2>&1 || true
+fi
 exit 0

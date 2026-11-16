@@ -20,6 +20,7 @@
  *   {"type":"enable"}     - enable auto-connect
  *   {"type":"status"}     - request current status
  *
+ * A new client gets the current state message right after it connects.
  * Only root and the console user may connect.
  */
 
