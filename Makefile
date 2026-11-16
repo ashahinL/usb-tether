@@ -6,40 +6,31 @@ LDFLAGS =
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 CFLAGS += -DVERSION=\"$(VERSION)\"
 
-# macOS Universal Binary Support
-ARCH_FLAGS ?= $(shell uname -m | grep -q 'arm64' && echo '-arch arm64' || echo '-arch x86_64')
-ifeq ($(UNIVERSAL), 1)
-	ARCH_FLAGS = -arch arm64 -arch x86_64
-endif
-
-# Minimum macOS version (13 Ventura)
+ARCH_FLAGS = -arch $(shell uname -m)
 CFLAGS += -mmacosx-version-min=13.0
 LDFLAGS += -mmacosx-version-min=13.0
 MAC_SDK := $(shell xcrun --show-sdk-path)
-ifeq ($(UNIVERSAL), 1)
-	SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target arm64-apple-macos13.0 -target x86_64-apple-macos13.0
-else
-	SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target $(shell uname -m)-apple-macos13.0
-endif
+CFLAGS += -isysroot $(MAC_SDK)
+LDFLAGS += -isysroot $(MAC_SDK)
+SWIFT_FLAGS = -O -sdk $(MAC_SDK) -target $(shell uname -m)-apple-macos13.0
 
-# libusb from Homebrew
-LIBUSB_PREFIX := $(shell brew --prefix libusb 2>/dev/null || echo /opt/homebrew)
-CFLAGS += -I$(LIBUSB_PREFIX)/include/libusb-1.0 $(ARCH_FLAGS)
-
-# Static linking (for distribution): no external dylib dependencies
-ifeq ($(STATIC), 1)
+ifeq ($(RELEASE),1)
+VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' resources/Info.plist)
+ARCH_FLAGS = -arch arm64 -arch x86_64
+LIBUSB_PREFIX = $(CURDIR)/build/deps
 LDFLAGS += $(LIBUSB_PREFIX)/lib/libusb-1.0.a $(ARCH_FLAGS)
+BUILDDIR = build/release
 else
+LIBUSB_PREFIX := $(shell brew --prefix libusb 2>/dev/null || echo /opt/homebrew)
 LDFLAGS += -L$(LIBUSB_PREFIX)/lib -lusb-1.0 $(ARCH_FLAGS)
+BUILDDIR = build
 endif
-
-# macOS frameworks (IOKit + objc needed for static libusb)
+CFLAGS += -I$(LIBUSB_PREFIX)/include/libusb-1.0 $(ARCH_FLAGS)
 LDFLAGS += -framework CoreFoundation -framework IOKit -framework Security -lobjc
 
 UI_SRCS = $(wildcard ui/*.swift)
 
 SRCDIR = src
-BUILDDIR = build
 RESDIR = resources
 
 SRCS = $(SRCDIR)/main.c $(SRCDIR)/rndis.c $(SRCDIR)/usb_device.c $(SRCDIR)/utun.c \
@@ -61,7 +52,7 @@ else
 CODESIGN_CMD = @true
 endif
 
-.PHONY: all clean install uninstall version pkg test icon screenshots
+.PHONY: all clean install uninstall version pkg dist test icon screenshots
 
 all: $(APP)
 
@@ -71,8 +62,12 @@ version:
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
 
-$(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
+$(BUILDDIR)/%.o: $(SRCDIR)/%.c Makefile | $(BUILDDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+ifeq ($(RELEASE),1)
+$(APP): build/deps/lib/libusb-1.0.a
+endif
 
 # Build the single self-contained .app bundle
 $(APP): $(OBJS) $(UI_SRCS) $(RESDIR)/Info.plist $(RESDIR)/AppIcon.icns | $(BUILDDIR)
@@ -81,7 +76,13 @@ $(APP): $(OBJS) $(UI_SRCS) $(RESDIR)/Info.plist $(RESDIR)/AppIcon.icns | $(BUILD
 	@# Link daemon binary
 	$(CC) $(OBJS) $(LDFLAGS) -o $(DAEMON)
 	@# Compile Swift UI
+ifeq ($(RELEASE),1)
+	swiftc -O -sdk $(MAC_SDK) -target arm64-apple-macos13.0 $(UI_SRCS) -o $(BUILDDIR)/USBTether-arm64
+	swiftc -O -sdk $(MAC_SDK) -target x86_64-apple-macos13.0 $(UI_SRCS) -o $(BUILDDIR)/USBTether-x86_64
+	lipo -create $(BUILDDIR)/USBTether-arm64 $(BUILDDIR)/USBTether-x86_64 -output $(UI)
+else
 	swiftc $(SWIFT_FLAGS) $(UI_SRCS) -o $(UI)
+endif
 	@# Copy Info.plist and the app icon
 	cp $(RESDIR)/Info.plist $(APP)/Contents/Info.plist
 	cp $(RESDIR)/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
@@ -113,7 +114,7 @@ test: | $(BUILDDIR)
 	$(TEST_BIN)
 
 clean:
-	rm -rf $(BUILDDIR)
+	rm -rf build
 
 PLIST_SRC = $(RESDIR)/com.ashahin.macostether.plist
 PLIST_DST = /Library/LaunchDaemons/com.ashahin.macostether.plist
@@ -121,25 +122,25 @@ PLIST_DST = /Library/LaunchDaemons/com.ashahin.macostether.plist
 install: $(APP)
 	@echo "Installing USB Tether to /Applications..."
 	@# Stop existing daemon if running
-	launchctl unload $(PLIST_DST) 2>/dev/null || true
+	scripts/preinstall
 	rm -rf /Applications/macOs_tether.app "$(INSTALLED_APP)"
 	cp -R $(APP) "$(INSTALLED_APP)"
 	@echo "Installing LaunchDaemon..."
 	cp $(PLIST_SRC) $(PLIST_DST)
 	chown root:wheel $(PLIST_DST)
 	chmod 644 $(PLIST_DST)
-	launchctl load $(PLIST_DST)
+	scripts/postinstall
 	@echo ""
 	@echo "Installed. The daemon is now running in watch mode."
 	@echo "Open USB Tether from /Applications for the menu bar UI."
 	@echo "The daemon runs as a system service, so it does not ask for a password again."
 
 uninstall:
-	launchctl unload $(PLIST_DST) 2>/dev/null || true
-	rm -f $(PLIST_DST)
-	rm -rf "$(INSTALLED_APP)"
-	rm -f /var/run/macostether.sock
-	@echo "Uninstalled USB Tether and its LaunchDaemon"
+	scripts/uninstall.sh
 
-pkg:
-	@scripts/build-pkg.sh
+pkg: dist
+
+dist:
+	scripts/build-libusb.sh
+	$(MAKE) RELEASE=1 all
+	scripts/build-pkg.sh

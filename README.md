@@ -21,7 +21,7 @@ macOS does not natively support the RNDIS protocol that Android uses for USB tet
 - **Universal Binary**: Compiles for both Apple Silicon (`arm64`) and Intel (`x86_64`)
 - **Safe Userspace**: Zero kernel extensions, no SIP changes needed
 - **Extensible Architecture**: Protocol driver abstraction allows community to add NCM/ECM support
-- **Single App Bundle**: Everything lives in one `.app` — drag to trash to uninstall
+- **Single App Bundle**: The daemon and menu bar UI live in one `.app`. Use the uninstall script to remove the background service too
 - **macOS 10.15+**: Supports Catalina through the latest macOS versions
 
 ## How It Works
@@ -61,22 +61,19 @@ brew install libusb
 make
 sudo make install
 
-# Or build a .pkg installer yourself
-make pkg
+# Or build a universal .pkg inside a .dmg (no Homebrew needed)
+make dist
 ```
 
 ### Uninstall
 
+Run `Uninstall USB Tether.command` from the disk image, or from this source checkout:
+
 ```bash
-sudo make uninstall
+make uninstall
 ```
 
-Or manually:
-```bash
-sudo launchctl unload /Library/LaunchDaemons/com.ashahin.macostether.plist
-sudo rm /Library/LaunchDaemons/com.ashahin.macostether.plist
-rm -rf /Applications/macOs_tether.app
-```
+Enter your admin password when asked. This removes the app, background service, socket, log, and installer receipt.
 
 ## Usage
 

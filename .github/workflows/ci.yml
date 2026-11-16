@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install development dependency
+        run: brew install libusb
+      - name: Build development app
+        run: make
+      - name: Test
+        run: make test
+      - name: Build universal disk image
+        run: make dist
+      - name: Verify release artifacts
+        run: tests/test_dist.sh
