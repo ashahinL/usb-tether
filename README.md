@@ -234,6 +234,10 @@ The protocol driver interface provides callbacks for:
 - In watch mode, the daemon auto-reconnects within 3 seconds
 - Check `/var/log/macostether.log` for details
 
+## Credits
+
+USB Tether started as a fork of [android-usb-tether-macos](https://github.com/hknsglm/android-usb-tether-macos) by Hakan Saglam, released under the MIT license.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
