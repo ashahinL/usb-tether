@@ -36,6 +36,8 @@ endif
 # macOS frameworks (IOKit + objc needed for static libusb)
 LDFLAGS += -framework CoreFoundation -framework IOKit -framework Security -lobjc
 
+UI_SRCS = $(wildcard ui/*.swift)
+
 SRCDIR = src
 BUILDDIR = build
 RESDIR = resources
@@ -59,7 +61,7 @@ else
 CODESIGN_CMD = @true
 endif
 
-.PHONY: all clean install uninstall version pkg test
+.PHONY: all clean install uninstall version pkg test icon screenshots
 
 all: $(APP)
 
@@ -73,21 +75,34 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Build the single self-contained .app bundle
-$(APP): $(OBJS) ui/MenuApp.swift $(RESDIR)/Info.plist | $(BUILDDIR)
+$(APP): $(OBJS) $(UI_SRCS) $(RESDIR)/Info.plist $(RESDIR)/AppIcon.icns | $(BUILDDIR)
 	@# Create bundle structure
-	mkdir -p $(APP_MACOS)
+	mkdir -p $(APP_MACOS) $(APP)/Contents/Resources
 	@# Link daemon binary
 	$(CC) $(OBJS) $(LDFLAGS) -o $(DAEMON)
 	@# Compile Swift UI
-	swiftc $(SWIFT_FLAGS) ui/MenuApp.swift -o $(UI)
-	@# Copy Info.plist
+	swiftc $(SWIFT_FLAGS) $(UI_SRCS) -o $(UI)
+	@# Copy Info.plist and the app icon
 	cp $(RESDIR)/Info.plist $(APP)/Contents/Info.plist
+	cp $(RESDIR)/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	@# Optional code signing
 	$(CODESIGN_CMD) $(APP)
 	@echo ""
 	@echo "Build complete: $(APP) ($(VERSION))"
 	@echo "  Daemon: $(DAEMON)"
 	@echo "  UI:     $(UI)"
+
+# Redraw resources/AppIcon.icns from scripts/make-icon.swift
+icon: | $(BUILDDIR)
+	rm -rf $(BUILDDIR)/AppIcon.iconset
+	swift scripts/make-icon.swift $(BUILDDIR)/AppIcon.iconset
+	iconutil -c icns $(BUILDDIR)/AppIcon.iconset -o $(RESDIR)/AppIcon.icns
+
+# Render the README popover screenshots from the real SwiftUI views with sample data
+SCREENSHOT_BIN = $(BUILDDIR)/render-screenshots
+screenshots: | $(BUILDDIR)
+	swiftc $(SWIFT_FLAGS) $(filter-out ui/App.swift,$(UI_SRCS)) scripts/render-screenshots.swift -o $(SCREENSHOT_BIN)
+	$(SCREENSHOT_BIN) docs/images
 
 TEST_SRCS = tests/test_parsers.c $(SRCDIR)/rndis.c $(SRCDIR)/dhcp.c $(SRCDIR)/log.c $(SRCDIR)/usb_device.c
 TEST_BIN = $(BUILDDIR)/test_parsers

@@ -54,7 +54,9 @@ build/            Build output (gitignored)
 | `src/utun.c` | macOS utun interface, routing, DNS |
 | `src/dhcp.c` | DHCP client (raw packet construction) |
 | `src/ipc.c` | Unix domain socket server for UI communication |
-| `ui/MenuApp.swift` | Native macOS menu bar app |
+| `ui/*.swift` | Menu bar app: SwiftUI popover, IPC client, state model |
+| `scripts/make-icon.swift` | Draws the app icon (`make icon`) |
+| `scripts/render-screenshots.swift` | Renders the README screenshots (`make screenshots`) |
 
 ## Code Style
 

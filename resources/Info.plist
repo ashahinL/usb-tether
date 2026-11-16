@@ -8,6 +8,8 @@
     <string>com.ashahin.macostetherui</string>
     <key>CFBundleName</key>
     <string>USB Tether</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleDisplayName</key>
     <string>USB Tether</string>
     <key>CFBundlePackageType</key>

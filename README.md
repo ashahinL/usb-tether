@@ -186,10 +186,14 @@ src/
   compat.c          macOS version detection
 
 ui/
-  MenuApp.swift     Menu bar application with IPC support
+  App.swift         Menu bar icon and popover
+  IPCClient.swift   Socket client for the daemon
+  TetherModel.swift Connection state, stats and settings
+  Views.swift       SwiftUI popover views
 
 resources/
   Info.plist                              App bundle metadata
+  AppIcon.icns                            App icon (made by scripts/make-icon.swift)
   entitlements.plist                      Code signing entitlements
   com.ashahin.macostether.plist    launchd daemon plist
 ```
