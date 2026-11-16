@@ -3,7 +3,7 @@ import SwiftUI
 
 enum Palette {
     static let download = Color(nsColor: .systemBlue)
-    static let upload = Color(nsColor: .systemPurple)
+    static let upload = Color(nsColor: .systemOrange)
 
     static func dot(_ status: TetherStatus) -> Color {
         switch status {
@@ -40,32 +40,40 @@ enum Format {
     }
 }
 
+/// The popover content. It draws no background of its own, so the popover's
+/// translucent material shows through, as in the system menu-bar menus.
 struct PopoverView: View {
     @ObservedObject var model: TetherModel
-    let version: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HeaderView(status: model.status)
+            HeaderView(model: model)
+                .padding(.leading, 16)
+                .padding(.trailing, 10)
+                .padding(.vertical, 12)
+            SectionDivider()
+            StatusSection(model: model)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-            Divider()
-            StatusSection(model: model)
-                .padding(16)
-            Divider()
+            SectionDivider()
             ControlsSection(model: model)
-                .padding(16)
-            Divider()
-            FooterView(version: version)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
         }
         .frame(width: 320)
     }
 }
 
+/// An inset separator, like the ones between groups in a menu.
+struct SectionDivider: View {
+    var body: some View {
+        Divider().padding(.horizontal, 12)
+    }
+}
+
 struct HeaderView: View {
-    let status: TetherStatus
+    @ObservedObject var model: TetherModel
 
     var body: some View {
         HStack(spacing: 12) {
@@ -77,15 +85,42 @@ struct HeaderView: View {
                     .font(.headline)
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(Palette.dot(status))
+                        .fill(Palette.dot(model.status))
                         .frame(width: 8, height: 8)
-                    Text(status.title)
+                    Text(model.status.title)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
-            Spacer()
+            Spacer(minLength: 8)
+            SettingsMenu(model: model)
         }
+    }
+}
+
+/// The gear menu: the settings people change once, plus About and Quit.
+struct SettingsMenu: View {
+    @ObservedObject var model: TetherModel
+
+    var body: some View {
+        Menu {
+            Toggle("Open at Login", isOn: Binding(
+                get: { model.openAtLogin },
+                set: { model.setOpenAtLogin($0) }))
+            Toggle("Show Speed in Menu Bar", isOn: $model.showSpeedInMenuBar)
+            Divider()
+            Button("About USB Tether") { AboutPanel.show() }
+            Divider()
+            Button("Quit USB Tether") { NSApp.terminate(nil) }
+                .keyboardShortcut("q")
+        } label: {
+            Image(systemName: "gearshape")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Settings")
+        .accessibilityLabel("Settings")
     }
 }
 
@@ -133,28 +168,12 @@ struct ConnectedView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Phone")
-                    .foregroundStyle(.secondary)
-                Text(model.ip ?? "-")
-                    .font(.callout.monospacedDigit())
-                    .textSelection(.enabled)
-                Spacer()
-                Text(model.iface ?? "")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .font(.callout)
-
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 SpeedTile(title: "Download", symbol: "arrow.down", tint: Palette.download,
-                          mbps: model.stats?.rxMbps ?? 0)
+                          mbps: model.stats?.rxMbps ?? 0, history: model.history.map(\.rxMbps))
                 SpeedTile(title: "Upload", symbol: "arrow.up", tint: Palette.upload,
-                          mbps: model.stats?.txMbps ?? 0)
+                          mbps: model.stats?.txMbps ?? 0, history: model.history.map(\.txMbps))
             }
-
-            Sparkline(samples: model.history, capacity: TetherModel.historyLength)
-                .frame(height: 44)
 
             VStack(spacing: 6) {
                 InfoRow(label: "Session data") {
@@ -171,8 +190,20 @@ struct ConnectedView: View {
                         Text(Format.duration(from: since, to: model.now))
                     }
                 }
+                if let ip = model.ip {
+                    InfoRow(label: "IP address") {
+                        Text(ip).textSelection(.enabled)
+                    }
+                    .help(addressHelp(ip))
+                }
             }
         }
+    }
+
+    private func addressHelp(_ ip: String) -> String {
+        let base = "This Mac's address on the phone's network"
+        guard let iface = model.iface, !iface.isEmpty else { return base + "." }
+        return base + " (interface \(iface))."
     }
 }
 
@@ -200,14 +231,16 @@ struct InfoRow<Value: View>: View {
     }
 }
 
+/// Current speed in one direction, with its own graph of the last minute.
 struct SpeedTile: View {
     let title: String
     let symbol: String
     let tint: Color
     let mbps: Double
+    let history: [Double]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             Label(title, systemImage: symbol)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -220,10 +253,16 @@ struct SpeedTile: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            SpeedGraph(values: history, capacity: TetherModel.historyLength, tint: tint)
+                .frame(height: 40)
+                .padding(.top, 4)
+                .help("The last 60 seconds. Peak is the highest speed in that time.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title) \(Format.speed(mbps)) megabits per second")
     }
 }
 
@@ -238,38 +277,62 @@ struct TintedIconLabelStyle: LabelStyle {
     }
 }
 
-/// Download (filled) and upload (line) speed over the last `capacity` samples, newest on the right.
-struct Sparkline: View {
-    let samples: [SpeedSample]
+/// One speed over the last `capacity` seconds, newest on the right.
+/// The samples are joined with straight lines, with no smoothing. The top of the
+/// plot is the highest sample in the window; a dashed line and label mark it.
+struct SpeedGraph: View {
+    let values: [Double]
     let capacity: Int
+    let tint: Color
+
+    private static let labelHeight: CGFloat = 12
 
     var body: some View {
-        GeometryReader { geo in
-            let peak = max(1, samples.map { max($0.rxMbps, $0.txMbps) }.max() ?? 1)
-            let down = points(samples.map(\.rxMbps), peak: peak, size: geo.size)
-            let up = points(samples.map(\.txMbps), peak: peak, size: geo.size)
-            ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
-                if down.count > 1 {
-                    area(down, height: geo.size.height)
-                        .fill(LinearGradient(colors: [Palette.download.opacity(0.35), Palette.download.opacity(0.03)],
-                                             startPoint: .top, endPoint: .bottom))
-                    line(down).stroke(Palette.download, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
-                    line(up).stroke(Palette.upload, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+        let peak = values.max() ?? 0
+        VStack(alignment: .trailing, spacing: 0) {
+            Text("Peak \(Format.speed(peak))")
+                .font(.system(size: 9.5, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(height: Self.labelHeight, alignment: .top)
+            GeometryReader { geo in
+                let pts = points(peak: peak, size: geo.size)
+                ZStack(alignment: .top) {
+                    Path { path in
+                        path.move(to: .zero)
+                        path.addLine(to: CGPoint(x: geo.size.width, y: 0))
+                    }
+                    .stroke(Color.secondary.opacity(0.45), style: StrokeStyle(lineWidth: 0.5, dash: [2, 2]))
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: geo.size.height))
+                        path.addLine(to: CGPoint(x: geo.size.width, y: geo.size.height))
+                    }
+                    .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+                    if pts.count > 1 {
+                        area(pts, height: geo.size.height)
+                            .fill(LinearGradient(colors: [tint.opacity(0.28), tint.opacity(0.04)],
+                                                 startPoint: .top, endPoint: .bottom))
+                        line(pts).stroke(tint, style: StrokeStyle(lineWidth: 1.25, lineJoin: .round))
+                    }
+                    if let last = pts.last {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 4, height: 4)
+                            .position(last)
+                    }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
-        .accessibilityLabel("Speed over the last minute")
+        .accessibilityHidden(true)
     }
 
-    private func points(_ values: [Double], peak: Double, size: CGSize) -> [CGPoint] {
+    private func points(peak: Double, size: CGSize) -> [CGPoint] {
+        let top = max(peak, 0.1)
         let step = size.width / CGFloat(max(1, capacity - 1))
         let offset = capacity - values.count
-        let usable = size.height - 4
         return values.enumerated().map { index, value in
             CGPoint(x: CGFloat(offset + index) * step,
-                    y: size.height - 2 - CGFloat(value / peak) * usable)
+                    y: size.height - CGFloat(max(0, value) / top) * size.height)
         }
     }
 
@@ -294,33 +357,43 @@ struct ControlsSection: View {
     @ObservedObject var model: TetherModel
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             mainButton
                 .controlSize(.large)
                 .frame(maxWidth: .infinity)
 
-            VStack(spacing: 8) {
-                SwitchRow(title: "Auto-connect", isOn: $model.autoConnect)
-                SwitchRow(title: "Open at Login", isOn: Binding(
-                    get: { model.openAtLogin },
-                    set: { model.setOpenAtLogin($0) }))
-                if let note = model.loginItemNote {
-                    HStack(alignment: .top) {
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 4)
-                        Button("Open Settings") { model.openLoginItemsSettings() }
-                            .font(.caption)
-                            .buttonStyle(.link)
-                    }
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Auto-connect")
+                        .font(.callout)
+                    Text("Connect when the phone is plugged in")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                SwitchRow(title: "Show speed in menu bar", isOn: $model.showSpeedInMenuBar)
+                Spacer()
+                Toggle("Auto-connect", isOn: $model.autoConnect)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+            }
+
+            if let note = model.loginItemNote {
+                HStack(alignment: .top) {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Open Settings") { model.openLoginItemsSettings() }
+                        .font(.caption)
+                        .buttonStyle(.link)
+                }
             }
         }
     }
 
+    /// The one action that fits the current state. Waiting with Auto-connect on
+    /// has no button: the Auto-connect switch is the way to stop.
     @ViewBuilder private var mainButton: some View {
         switch model.status {
         case .connected:
@@ -328,58 +401,26 @@ struct ControlsSection: View {
                 Text("Disconnect").frame(maxWidth: .infinity)
             }
         case .waiting:
-            Button(action: model.disconnect) {
-                Text(model.autoConnect ? "Waiting for phone" : "Stop waiting").frame(maxWidth: .infinity)
+            if !model.autoConnect {
+                Button(action: model.disconnect) {
+                    Text("Stop Waiting").frame(maxWidth: .infinity)
+                }
             }
-            .disabled(model.autoConnect)
-        case .off, .serviceDown:
+        case .off:
             Button(action: model.connect) {
                 Text("Connect").frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(model.status == .serviceDown)
+        case .serviceDown:
+            EmptyView()
         }
-    }
-}
-
-struct SwitchRow: View {
-    let title: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Toggle(title, isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-        }
-        .font(.callout)
-    }
-}
-
-struct FooterView: View {
-    let version: String
-
-    var body: some View {
-        HStack {
-            Button("About") { AboutPanel.show() }
-            Spacer()
-            Text("Version \(version)")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Spacer()
-            Button("Quit") { NSApp.terminate(nil) }
-        }
-        .buttonStyle(.borderless)
-        .font(.callout)
     }
 }
 
 enum AboutPanel {
     static let projectURL = URL(string: "https://github.com/ashahinL/macOs_tether")!
 
+    /// The standard About panel. It shows the version from Info.plist.
     static func show() {
         let credits = NSMutableAttributedString(
             string: "Use your Android phone's internet over a USB cable.\n",

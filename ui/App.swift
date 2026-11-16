@@ -27,8 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePopover)
         }
 
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-        let host = NSHostingController(rootView: PopoverView(model: model, version: version))
+        // No background view here: the popover's own translucent material shows behind the content.
+        let host = NSHostingController(rootView: PopoverView(model: model))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
         popover.behavior = .transient
